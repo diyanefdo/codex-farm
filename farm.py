@@ -17,6 +17,7 @@ class Worker:
     task: str = 'Waiting for activity'
     state: str = 'idle'
     parent: str = ''
+    goal: str = ''
 
 
 @dataclass
@@ -77,6 +78,15 @@ class Session:
                 if msg:
                     self.worker.task = str(msg)
                 if typ == 'user_message':
+                    self.worker.goal = str(msg or '')
+                    self.worker.state = 'working'
+        elif kind == 'response_item' and p.get('type') == 'message':
+            content = p.get('content', [])
+            text = ' '.join(str(part.get('text', '')) for part in content if isinstance(part, dict)) if isinstance(content, list) else ''
+            if text and p.get('role') in ('user', 'assistant'):
+                self.worker.task = text
+                if p.get('role') == 'user':
+                    self.worker.goal = text
                     self.worker.state = 'working'
         elif kind == 'response_item' and p.get('type') == 'function_call':
             self.worker.state = 'working'
@@ -218,27 +228,40 @@ class Monitor:
             session.update()
         return processes()
 
-    def cards(self, procs):
-        cards = []
+    def workers_for(self, root):
         by_id = {s.id: s for s in self.sessions.values() if s.id}
+        descendants = {root.id}
+        while True:
+            new = {s.id for s in by_id.values() if s.parent in descendants} - descendants
+            if not new:
+                break
+            descendants |= new
+        return [root.worker] + [by_id[i].worker for i in sorted(descendants - {root.id})]
+
+    def cards(self, procs, sessions_only=False):
+        process_cards, linked = [], set()
         for p in procs:
             exact = [s for s in self.sessions.values() if str(s.path) in p['logs'] and not s.parent]
             # CWD alone is ambiguous: never attribute another terminal's work.
             root = max(exact, key=lambda s: s.touched) if exact else None
-            workers = []
             if root:
-                workers.append(root.worker)
-                descendants = {root.id}
-                while True:
-                    new = {s.id for s in by_id.values() if s.parent in descendants} - descendants
-                    if not new:
-                        break
-                    descendants |= new
-                workers.extend(by_id[i].worker for i in sorted(descendants - {root.id}))
+                linked.add(root.id)
+                workers = self.workers_for(root)
             else:
-                workers = [Worker(str(p['pid']), 'Manager', 'Session log not linked; process is running', 'online')]
-            cards.append((f"PID {p['pid']}  {p['tty'].replace('/dev/', '')}", p['cwd'], workers))
-        return cards
+                workers = [Worker(str(p['pid']), 'Manager', 'Process online; task activity is in LOG cards / [s] session view', 'online')]
+            process_cards.append((f"PID {p['pid']}  {p['tty'].replace('/dev/', '')}", p['cwd'], workers))
+        # A log is useful even when the writer has closed its file descriptor.
+        # Keep these separate from process cards: modification time cannot prove PID identity.
+        cutoff = time.time() - (86400 if sessions_only else 900)
+        roots = [s for s in self.sessions.values() if s.id and not s.parent and s.touched >= cutoff
+                 and (sessions_only or s.id not in linked)]
+        roots.sort(key=lambda s: s.touched, reverse=True)
+        log_cards = []
+        for root in roots:
+            age = max(0, int(time.time() - root.touched))
+            label = 'session history' if sessions_only else 'PID unverified'
+            log_cards.append((f'LOG {root.id[:8]} / {age}s ago / {label}', root.cwd or '(directory not recorded)', self.workers_for(root)))
+        return log_cards if sessions_only else log_cards + process_cards
 
 
 def demo_cards(tick):
@@ -273,11 +296,12 @@ def draw(stdscr, args):
     tick, scroll, last = 0, 0, 0
     cards, error = [], ''
     demo = args.demo
+    sessions_only = args.sessions
     while True:
         now = time.monotonic()
         if now - last >= args.refresh:
             try:
-                cards = monitor.cards(monitor.scan()) if not demo else demo_cards(tick)
+                cards = monitor.cards(monitor.scan(), sessions_only=sessions_only) if not demo else demo_cards(tick)
                 error = ''
             except OSError as exc:
                 error = str(exc)
@@ -288,12 +312,12 @@ def draw(stdscr, args):
         h, w = stdscr.getmaxyx()
         put(0, 2, r'  /\     CODEX FARM', 2, True)
         put(1, 2, r' /__\    A little homestead for your agents', 1)
-        put(2, 2, ' |[]|    ' + ('DEMO WORLD' if demo else 'LIVE / LOCAL') + f'   {len(cards)} managers   {sum(len(c[2])-1 for c in cards)} farmhands', 3)
+        put(2, 2, ' |[]|    ' + ('DEMO WORLD' if demo else 'SESSION LOGS' if sessions_only else 'LIVE / LOCAL') + f'   {len(cards)} farms   {sum(len(c[2])-1 for c in cards)} farmhands', 3)
         put(3, 2, '~' * max(0, w - 5), 1)
         if w < 62 or h < 15:
             put(6, 2, 'Grow your terminal to at least 62 x 15.', 2)
         elif not cards:
-            put(6, 4, 'The farm is quiet. No Codex processes found.', 2, True)
+            put(6, 4, 'No recent activity found. Press s for session history.', 2, True)
             put(8, 4, 'Start Codex here, or press d for demo. Diagnose: --diagnose')
             put(10, 4, f'Logs: {args.codex_home}')
         else:
@@ -307,13 +331,13 @@ def draw(stdscr, args):
                 height = max(9 + len(c[2]) * 4 for c in row)
                 for col, (title, cwd, workers) in enumerate(row):
                     x = 2 + col * (width + 1)
-                    lines = [(0, '+' + '-' * (width - 2) + '+', 1), (1, '|  ' + title, 2), (2, '|  ' + clean(cwd)[:width - 7], 4), (3, '|     .----.       MANAGER\'S DESK', 2), (4, '|     |____|       harvest in progress', 2), (5, '|     /|  |\\', 2)]
+                    lines = [(0, '+' + '-' * (width - 2) + '+', 1), (1, '|  ' + title, 2), (2, '|  ' + clean(cwd)[:width - 7], 4), (3, '|     .----.       MANAGER\'S DESK', 2), (4, '|     |____|       session activity' if title.startswith('LOG ') else '|     |____|       terminal instance', 2), (5, '|     /|  |\\', 2)]
                     for index, worker in enumerate(workers):
                         yy = 7 + index * 4
                         active = worker.state == 'working'
                         sprite = 'o' if not active or tick % 2 == 0 else 'O'
                         color = 1 if active else 3 if worker.state == 'done' else 2
-                        lines.extend([(yy, f'|   {sprite}    {worker.name}  [{worker.state}]', color), (yy+1, '|  /|\\   ' + clean(worker.task)[:width - 12], 4), (yy+2, '|  / \\   ' + ('* tending the code' if active else '. resting by the fence'), 1)])
+                        lines.extend([(yy, f'|   {sprite}    {worker.name}  [{worker.state}]', color), (yy+1, '|  /|\\   ' + clean(worker.task)[:width - 12], 4), (yy+2, '|  / \\   ' + (('Goal: ' + clean(worker.goal))[:width - 12] if worker.goal else '* tending the code' if active else '. resting by the fence'), 1)])
                     lines.append((height-1, '+' + '-' * (width - 2) + '+', 1))
                     for dy in range(1, height-1):
                         blocks.append((y+dy, x+width-1, '|', 1))
@@ -325,14 +349,16 @@ def draw(stdscr, args):
                 screen_y = yy - scroll
                 if 5 <= screen_y < h-2:
                     put(screen_y, xx, text, color)
-        put(h-2, 2, error or ('Demo uses fictional activity.' if demo else 'Read-only. Agent links require session metadata; process links require open log files.'), 3)
-        put(h-1, 2, '[q] quit   [d] demo/live   [j/k or arrows] scroll   [r] refresh', 2)
+        put(h-2, 2, error or ('Demo uses fictional activity.' if demo else 'LOG cards show recorded activity; PID unverified means no terminal link. [s] history'), 3)
+        put(h-1, 2, '[q] quit  [d] demo/live  [s] sessions  [j/k or arrows] scroll  [r] refresh', 2)
         stdscr.refresh()
         key = stdscr.getch()
         if key in (ord('q'), 27):
             break
         if key == ord('d'):
             demo, scroll, last = not demo, 0, 0
+        elif key == ord('s'):
+            sessions_only, scroll, last = not sessions_only, 0, 0
         elif key in (ord('j'), curses.KEY_DOWN):
             scroll += 3
         elif key in (ord('k'), curses.KEY_UP):
@@ -345,6 +371,7 @@ def draw(stdscr, args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--diagnose', action='store_true', help='Print discovery diagnostics without opening the UI')
+    parser.add_argument('--sessions', action='store_true', help='Show session-log activity from the last 24 hours, without PID linking')
     parser.add_argument('--demo', action='store_true', help='Show a fictional animated farm')
     parser.add_argument('--codex-home', type=Path, default=Path(os.environ.get('CODEX_HOME', '~/.codex')).expanduser())
     parser.add_argument('--refresh', type=float, default=2, help='Discovery interval in seconds (default: 2)')

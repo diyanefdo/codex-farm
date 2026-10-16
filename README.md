@@ -42,6 +42,8 @@ A normal Codex turn can run entirely in the manager. Farmhands represent actual 
 
 After Codex confirms delegation, use `python3 farm.py --sessions` to see the team under its LOG manager. Relationships come from parent-session metadata, confirmed JSON `spawn_agent` results containing `agent_id`, or collaboration spawn events containing `new_agent_id`. The child log supplies further activity when available. Custom QGenie formats may require another adapter; process detection alone does not guarantee its fork emits compatible delegation events.
 
+If a delegated agent appears as another manager, run `python3 farm.py --diagnose-agents`. This prints schemas from the eight most recently modified logs: metadata keys and value types, event and tool names, parsed session IDs, and counts of confirmed agents. It omits message text, tool argument values, and tool result values. Share that output to identify an unsupported fork-specific relationship format. Sessions cannot be grouped safely from a shared directory or similar task text alone.
+
 ## Troubleshooting discovery
 
 Update your checkout and run the diagnostics while Codex is running:

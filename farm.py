@@ -2,6 +2,7 @@
 """Codex Farm: a read-only, dependency-free Linux terminal dashboard."""
 import argparse
 import curses
+from collections import Counter
 import json
 import os
 import re
@@ -235,6 +236,68 @@ def diagnose(home):
         print('Processes found, but no open session logs. Task linking may be unavailable.')
 
 
+def schema_shape(value, depth=0):
+    """Describe keys and types, never scalar values such as prompts or tokens."""
+    if depth >= 5:
+        return type(value).__name__
+    if isinstance(value, dict):
+        return {str(k): schema_shape(v, depth + 1) for k, v in value.items()}
+    if isinstance(value, list):
+        return [schema_shape(value[0], depth + 1)] if value else []
+    return type(value).__name__
+
+
+def diagnose_agents(home):
+    paths = []
+    for folder in ('sessions', 'archived_sessions'):
+        try:
+            paths.extend((p.stat().st_mtime, p) for p in (home / folder).rglob('*.jsonl'))
+        except OSError:
+            continue
+    print('Agent schema diagnostics: latest 8 logs; no prompt, argument, or result text.')
+    for _, path in sorted(paths, key=lambda item: item[0], reverse=True)[:8]:
+        session = Session(path)
+        events, tools, results = Counter(), Counter(), Counter()
+        metadata = {}
+        try:
+            with path.open('rb') as stream:
+                for line in stream:
+                    try:
+                        event = json.loads(line)
+                        if not isinstance(event, dict):
+                            continue
+                        payload = event.get('payload') or {}
+                        if not isinstance(payload, dict):
+                            continue
+                        session.consume(event)
+                        if event.get('type') == 'session_meta':
+                            metadata = schema_shape(payload)
+                        elif event.get('type') == 'event_msg':
+                            events[str(payload.get('type', 'unknown'))] += 1
+                        elif event.get('type') == 'response_item':
+                            if payload.get('type') == 'function_call':
+                                tools[str(payload.get('name', 'unknown'))] += 1
+                            elif payload.get('type') == 'function_call_output':
+                                output = payload.get('output')
+                                try:
+                                    output = json.loads(output) if isinstance(output, str) else output
+                                except ValueError:
+                                    pass
+                                results[json.dumps(schema_shape(output), sort_keys=True)] += 1
+                    except (ValueError, TypeError, AttributeError):
+                        continue
+        except OSError:
+            continue
+        # IDs are used for matching; all message, argument and result values are omitted.
+        print(f'Session {session.id or "(missing ID)"}; parsed parent: {session.parent or "none"}; confirmed agents: {len(session.delegated)}')
+        print('  metadata structure: ' + json.dumps(metadata, sort_keys=True))
+        print('  event types: ' + json.dumps(events, sort_keys=True))
+        print('  tool names: ' + json.dumps(tools, sort_keys=True))
+        print('  result structures: ' + json.dumps(results, sort_keys=True))
+    if not paths:
+        print('No JSONL logs found. Check --codex-home.')
+
+
 class Monitor:
     def __init__(self, home):
         self.home = home
@@ -419,12 +482,16 @@ def draw(stdscr, args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--diagnose-agents', action='store_true', help='Report recent agent event schemas without message text')
     parser.add_argument('--diagnose', action='store_true', help='Print discovery diagnostics without opening the UI')
     parser.add_argument('--sessions', action='store_true', help='Show session-log activity from the last 24 hours, without PID linking')
     parser.add_argument('--demo', action='store_true', help='Show a fictional animated farm')
     parser.add_argument('--codex-home', type=Path, default=Path(os.environ.get('CODEX_HOME', '~/.codex')).expanduser())
     parser.add_argument('--refresh', type=float, default=2, help='Discovery interval in seconds (default: 2)')
     args = parser.parse_args()
+    if args.diagnose_agents:
+        diagnose_agents(args.codex_home)
+        return
     if args.diagnose:
         diagnose(args.codex_home)
         return

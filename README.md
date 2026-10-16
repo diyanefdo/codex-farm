@@ -37,6 +37,8 @@ This initial version has no controls for sending prompts, cancelling agents, or 
 
 ## Check
 
+The dependency-free unittest suite uses temporary logs and synthetic Linux process entries. It covers lifecycle events, tool argument parsing, corrupted and partial records, log truncation, discovery windows, process filtering, and nested agent grouping. It does not read your real Codex sessions or require an interactive terminal.
+
 ```bash
 python3 -m unittest discover -s tests -v
 ```

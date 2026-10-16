@@ -82,6 +82,8 @@ class Session:
             name = p.get('name', 'tool')
             try:
                 args = json.loads(p.get('arguments', '{}'))
+                if not isinstance(args, dict):
+                    args = {}
                 detail = args.get('cmd') or args.get('command') or args.get('description') or ''
             except (ValueError, TypeError):
                 detail = ''

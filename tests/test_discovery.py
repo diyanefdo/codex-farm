@@ -138,3 +138,20 @@ class DiscoveryTests(unittest.TestCase):
         report = '\n'.join(call.args[0] for call in output.call_args_list)
         self.assertIn('Codex instances found: 0', report)
         self.assertIn('same Linux user', report)
+
+    def test_qgenie_native_instances_discovered_helpers_excluded(self):
+        self.proc_entry(20, 'codex-qgenie-native')
+        self.proc_entry(21, 'codex-code-node-host')
+        self.proc_entry(22, 'codex-linux-san')
+        self.proc_entry(23, 'codex-linux-sandbox')
+        self.assertEqual([p['pid'] for p in processes(self.home)], [20])
+
+    def test_qgenie_node_launcher_deduplicated_host_scripts_excluded(self):
+        wrapper = self.proc_entry(20, 'codex-qgenie-node')
+        (wrapper / 'cmdline').write_bytes(b'codex-qgenie-node\0/local/qgenie-cli/codex-cli/bin/codex.js\0')
+        self.assertEqual([p['pid'] for p in processes(self.home)], [20])
+        child = self.proc_entry(21, 'codex-qgenie-native')
+        (child / 'stat').write_text('21 (codex-qgenie-na) S 20 0 0')
+        host = self.proc_entry(22, 'codex-qgenie-node')
+        (host / 'cmdline').write_bytes(b'codex-qgenie-node\0/local/qgenie-cli/host/server.js\0')
+        self.assertEqual([p['pid'] for p in processes(self.home)], [21])

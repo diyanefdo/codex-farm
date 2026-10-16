@@ -94,6 +94,10 @@ class Session:
 def is_codex_name(name):
     # Native npm, standalone installer, and distribution binary names.
     name = name.removesuffix(' (deleted)')
+    if name in ('codex-qgenie-native', 'codex-qgenie-native.exe'):
+        return True
+    if name in ('codex-linux-san', 'codex-linux-sandbox'):
+        return False
     return bool(re.fullmatch(r'codex(?:\.exe|-(?:x86_64|aarch64|arm64|linux)(?:[-.][A-Za-z0-9_]+)*)?', name))
 
 
@@ -123,7 +127,7 @@ def processes(proc=Path('/proc'), diagnostics=None):
                 continue
         native = is_codex_name(exe)
         wrapper = False
-        if not native and exe in ('node', 'nodejs', 'bun', 'bun.exe'):
+        if not native and exe in ('node', 'nodejs', 'bun', 'bun.exe', 'codex-qgenie-node', 'codex-qgenie-node.exe'):
             try:
                 argv = (entry / 'cmdline').read_bytes().decode(errors='replace').split('\0')
                 # Match only the script position, never prompt arguments.

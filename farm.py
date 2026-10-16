@@ -4,6 +4,7 @@ import argparse
 import curses
 import json
 import os
+import re
 from pathlib import Path
 import time
 from dataclasses import dataclass, field
@@ -90,17 +91,60 @@ class Session:
             self.worker.task = f'{name}: {detail}' if detail else name
 
 
-def processes(proc=Path('/proc')):
-    """Find native Codex executables; skip node launchers to avoid duplicates."""
-    result = []
+def is_codex_name(name):
+    # Native npm, standalone installer, and distribution binary names.
+    name = name.removesuffix(' (deleted)')
+    return bool(re.fullmatch(r'codex(?:\.exe|-(?:x86_64|aarch64|arm64|linux)(?:[-.][A-Za-z0-9_]+)*)?', name))
+
+
+def processes(proc=Path('/proc'), diagnostics=None):
+    """Discover native binaries and Node CLI launchers without exposing prompts."""
+    result, parents, wrappers = {}, {}, set()
+    stats = diagnostics if diagnostics is not None else {}
+    stats.update(scanned=0, unreadable=0)
     for entry in proc.glob('[0-9]*'):
+        if not entry.name.isdigit():
+            continue
+        pid = int(entry.name)
+        stats['scanned'] += 1
+        try:
+            # stat's comm field may contain spaces or parentheses.
+            fields = (entry / 'stat').read_text().rsplit(')', 1)[1].split()
+            parents[pid] = int(fields[1])
+        except (OSError, ValueError, IndexError):
+            pass
         try:
             exe = (entry / 'exe').readlink().name
-            if exe not in ('codex', 'codex.exe'):
+        except OSError:
+            stats['unreadable'] += 1
+            try:
+                exe = (entry / 'comm').read_text().strip()
+            except OSError:
                 continue
+        native = is_codex_name(exe)
+        wrapper = False
+        if not native and exe in ('node', 'nodejs', 'bun', 'bun.exe'):
+            try:
+                argv = (entry / 'cmdline').read_bytes().decode(errors='replace').split('\0')
+                # Match only the script position, never prompt arguments.
+                script = next((arg for arg in argv[1:] if arg and not arg.startswith('-')), '')
+                wrapper = Path(script).name in ('codex', 'codex.js', 'codex.mjs', 'codex.cjs')
+            except OSError:
+                pass
+        if not (native or wrapper):
+            continue
+        if wrapper:
+            wrappers.add(pid)
+        try:
             cwd = str((entry / 'cwd').readlink())
+        except OSError:
+            cwd = '(working directory unavailable)'
+        try:
             tty = str((entry / 'fd/0').readlink())
-            logs = set()
+        except OSError:
+            tty = '(no terminal)'
+        logs = set()
+        try:
             for fd in (entry / 'fd').iterdir():
                 try:
                     target = str(fd.readlink())
@@ -108,10 +152,44 @@ def processes(proc=Path('/proc')):
                         logs.add(target)
                 except OSError:
                     pass
-            result.append({'pid': int(entry.name), 'cwd': cwd, 'tty': tty, 'logs': logs})
         except OSError:
+            pass
+        result[pid] = {'pid': pid, 'cwd': cwd, 'tty': tty, 'logs': logs}
+    # npm's Node launcher and its native child represent one instance.
+    for pid in list(result):
+        if pid in wrappers:
             continue
-    return sorted(result, key=lambda p: p['pid'])
+        ancestor, seen = parents.get(pid), {pid}
+        while ancestor and ancestor not in seen:
+            seen.add(ancestor)
+            if ancestor in wrappers and ancestor in result:
+                result[pid]['logs'].update(result[ancestor]['logs'])
+                del result[ancestor]
+            ancestor = parents.get(ancestor)
+    return [result[pid] for pid in sorted(result)]
+
+
+def diagnose(home):
+    stats = {}
+    found = processes(diagnostics=stats)
+    print('Codex Farm discovery diagnostics (no prompt text)')
+    print(f'Linux /proc available: {Path("/proc/self").exists()}')
+    print(f'Processes scanned: {stats["scanned"]}; executable links unreadable: {stats["unreadable"]}')
+    print(f'Codex instances found: {len(found)}')
+    for process in found:
+        print(f'  PID {process["pid"]} | {clean(process["tty"])} | open JSONL logs: {len(process["logs"])}')
+    print(f'Codex home exists: {home.is_dir()}')
+    for folder in ('sessions', 'archived_sessions'):
+        root = home / folder
+        try:
+            count = sum(1 for _ in root.rglob('*.jsonl')) if root.exists() else 0
+            print(f'  {folder}: {count} JSONL files')
+        except OSError:
+            print(f'  {folder}: unreadable')
+    if not found:
+        print('Run alongside Codex as the same Linux user, in the same container/WSL environment.')
+    elif not any(p['logs'] for p in found):
+        print('Processes found, but no open session logs. Task linking may be unavailable.')
 
 
 class Monitor:
@@ -212,7 +290,7 @@ def draw(stdscr, args):
             put(6, 2, 'Grow your terminal to at least 62 x 15.', 2)
         elif not cards:
             put(6, 4, 'The farm is quiet. No Codex processes found.', 2, True)
-            put(8, 4, 'Start Codex in another terminal, or press d to explore the demo.')
+            put(8, 4, 'Start Codex here, or press d for demo. Diagnose: --diagnose')
             put(10, 4, f'Logs: {args.codex_home}')
         else:
             cols = 2 if w >= 124 else 1
@@ -262,10 +340,14 @@ def draw(stdscr, args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--diagnose', action='store_true', help='Print discovery diagnostics without opening the UI')
     parser.add_argument('--demo', action='store_true', help='Show a fictional animated farm')
     parser.add_argument('--codex-home', type=Path, default=Path(os.environ.get('CODEX_HOME', '~/.codex')).expanduser())
     parser.add_argument('--refresh', type=float, default=2, help='Discovery interval in seconds (default: 2)')
     args = parser.parse_args()
+    if args.diagnose:
+        diagnose(args.codex_home)
+        return
     if args.refresh < .25:
         parser.error('--refresh must be at least 0.25')
     try:

@@ -29,11 +29,24 @@ python3 farm.py --codex-home ~/.codex --refresh 2
 
 ## Live discovery and current limits
 
-The dashboard discovers native `codex` executables through Linux `/proc`. It links an instance to a session only when that process has the session JSONL file open. If Codex closes the log between writes or `/proc` access is restricted, the process still appears with “Session log not linked”. It deliberately does not infer a link from the working directory, since several terminals can share one project. Node-only wrappers or differently named binaries may need a discovery adapter.
+The dashboard discovers native `codex` executables, platform-specific binary names, and Node/Bun Codex CLI launchers through Linux `/proc`. A Node launcher and its native child appear as one instance. Missing working-directory or stdin links do not hide a detected process. It links an instance to a session only when that process has the session JSONL file open. If Codex closes the log between writes or `/proc` access is restricted, the process still appears with “Session log not linked”. It deliberately does not infer a link from the working directory, since several terminals can share one project. Custom wrappers with other script names may still need a discovery adapter.
 
 Recent JSONL files (modified within 24 hours at discovery) under `sessions` and `archived_sessions` are parsed incrementally. Known files continue to be monitored. Agent trees use `session_meta.source.subagent.thread_spawn.parent_thread_id`; versions of Codex that omit this metadata cannot expose their agent hierarchy here. Tool calls and agent messages supply task labels. Worker states reflect log events, not CPU usage; a silent agent may still display its last task. The demo contains fictional activity and is always labeled.
 
 This initial version has no controls for sending prompts, cancelling agents, or attaching to terminals. Large historical logs are read once at startup; very large session stores may make the first refresh slow.
+
+## Troubleshooting discovery
+
+Update your checkout and run the diagnostics while Codex is running:
+
+```bash
+git pull
+python3 farm.py --diagnose
+```
+
+Diagnostics run without curses and report process counts, terminal availability, and log-file counts without printing command lines or prompt contents. If no instances are found, ensure both programs run as the same Linux user on the same host and in the same container or WSL distribution. The dashboard cannot discover processes on another machine or outside its PID namespace. Do not run the dashboard with sudo as a workaround.
+
+If a manager appears with "Session log not linked", process discovery succeeded. Check `--codex-home` (or `CODEX_HOME`) points at your Codex log folder. Even with the correct folder, activity linking still requires an open JSONL file; this update does not remove that limitation.
 
 ## Check
 

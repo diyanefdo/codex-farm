@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from farm import Monitor, Session, processes
+from farm import Monitor, Session, processes, is_codex_name, diagnose
 
 
 class DiscoveryTests(unittest.TestCase):
@@ -69,11 +69,13 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual([p['pid'] for p in found], [7, 42])
         self.assertEqual(found[1], {'pid': 42, 'cwd': '/work/project', 'tty': '/dev/pts/2', 'logs': {'/logs/session.jsonl'}})
 
-    def test_disappearing_or_unreadable_process_does_not_hide_others(self):
+    def test_missing_cwd_does_not_hide_running_instance(self):
         self.proc_entry(10)
         broken = self.proc_entry(11)
         (broken / 'cwd').unlink()
-        self.assertEqual([p['pid'] for p in processes(self.home)], [10])
+        found = processes(self.home)
+        self.assertEqual([p['pid'] for p in found], [10, 11])
+        self.assertEqual(found[1]['cwd'], '(working directory unavailable)')
 
     def test_unrelated_agents_excluded_and_latest_open_root_chosen(self):
         monitor = Monitor(self.home)
@@ -92,3 +94,47 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual([w.id for w in workers], ['root', 'child'])
         self.assertEqual(title, 'PID 1  pts/1')
         self.assertEqual(cwd, '/work')
+
+    def test_platform_binary_names_and_unrelated_programs(self):
+        for name in ('codex', 'codex.exe', 'codex-x86_64-unknown-linux-musl', 'codex-aarch64-unknown-linux-gnu', 'codex (deleted)'):
+            with self.subTest(name=name):
+                self.assertTrue(is_codex_name(name))
+        for name in ('node', 'my-codex-app', 'codex-farm', 'codex-helper', 'codexium'):
+            with self.subTest(name=name):
+                self.assertFalse(is_codex_name(name))
+
+    def test_node_script_discovered_but_prompt_mentions_ignored(self):
+        wrapper = self.proc_entry(12, 'node')
+        (wrapper / 'cmdline').write_bytes(b'node\0/usr/lib/node_modules/@openai/codex/bin/codex.js\0private prompt\0')
+        unrelated = self.proc_entry(13, 'node')
+        (unrelated / 'cmdline').write_bytes(b'node\0server.js\0codex.js\0')
+        self.assertEqual([p['pid'] for p in processes(self.home)], [12])
+
+    def test_native_child_replaces_node_launcher_and_keeps_logs(self):
+        wrapper = self.proc_entry(12, 'node')
+        (wrapper / 'cmdline').write_bytes(b'node\0/usr/bin/codex\0')
+        (wrapper / 'fd/3').symlink_to('/logs/root.jsonl')
+        child = self.proc_entry(14)
+        (child / 'stat').write_text('14 (codex (worker)) S 12 0 0')
+        found = processes(self.home)
+        self.assertEqual([p['pid'] for p in found], [14])
+        self.assertEqual(found[0]['logs'], {'/logs/root.jsonl'})
+
+    def test_missing_exe_uses_comm_and_missing_stdin_is_allowed(self):
+        entry = self.proc_entry(12)
+        (entry / 'exe').unlink()
+        (entry / 'comm').write_text('codex\n')
+        (entry / 'fd/0').unlink()
+        found = processes(self.home)
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]['tty'], '(no terminal)')
+
+    def test_diagnostics_report_no_processes_without_curses(self):
+        def no_processes(diagnostics):
+            diagnostics.update(scanned=5, unreadable=2)
+            return []
+        with patch('farm.processes', side_effect=no_processes), patch('builtins.print') as output:
+            diagnose(self.home)
+        report = '\n'.join(call.args[0] for call in output.call_args_list)
+        self.assertIn('Codex instances found: 0', report)
+        self.assertIn('same Linux user', report)

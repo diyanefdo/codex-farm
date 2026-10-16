@@ -30,6 +30,7 @@ class Session:
     worker: Worker = field(default_factory=lambda: Worker(''))
     offset: int = 0
     touched: float = 0
+    thread_id: str = ''
     pending_spawns: dict = field(default_factory=dict)
     delegated: dict = field(default_factory=dict)
 
@@ -56,7 +57,8 @@ class Session:
         p = event.get('payload') or {}
         kind = event.get('type')
         if kind == 'session_meta':
-            self.id = p.get('id', self.id)
+            self.id = p.get('id') or p.get('thread_id') or self.id
+            self.thread_id = p.get('thread_id') or self.id
             self.cwd = p.get('cwd', self.cwd)
             source = p.get('source', {})
             if isinstance(source, dict):
@@ -102,7 +104,7 @@ class Session:
                     output = p.get('output', '{}')
                     result = json.loads(output) if isinstance(output, str) else output
                     if isinstance(result, dict):
-                        self.record_spawn(call_id, result.get('agent_id'), result)
+                        self.record_spawn(call_id, result.get('agent_id') or result.get('thread_id') or result.get('id'), result)
                     else:
                         self.pending_spawns.pop(call_id, None)
                 except (ValueError, TypeError):
@@ -118,7 +120,7 @@ class Session:
                 detail = args.get('cmd') or args.get('command') or args.get('description') or ''
             except (ValueError, TypeError):
                 detail = ''
-            if name.rsplit('.', 1)[-1] == 'spawn_agent' and p.get('call_id'):
+            if name.rsplit('.', 1)[-1] in ('spawn_agent', 'spawn') and p.get('call_id'):
                 self.pending_spawns[p['call_id']] = args
             self.worker.task = f'{name}: {detail}' if detail else name
 
@@ -126,7 +128,7 @@ class Session:
         args = self.pending_spawns.pop(call_id, {})
         if not isinstance(agent_id, str) or not agent_id or result.get('error'):
             return
-        task = args.get('message') or args.get('task') or result.get('prompt') or 'Delegated task; waiting for agent log'
+        task = args.get('message') or args.get('task') or args.get('prompt') or args.get('instructions') or result.get('prompt') or 'Delegated task; waiting for agent log'
         name = result.get('nickname') or args.get('name') or args.get('agent_type') or ('Hand ' + agent_id[:6])
         self.delegated[agent_id] = Worker(agent_id, str(name), str(task), 'delegated', self.id, str(task))
 
@@ -320,10 +322,17 @@ class Monitor:
             session.update()
         return processes()
 
+    def identities(self):
+        aliases = {s.id: s.id for s in self.sessions.values() if s.id}
+        aliases.update({s.thread_id: s.id for s in self.sessions.values() if s.id and s.thread_id})
+        return aliases
+
     def parent_links(self):
-        links = {s.id: s.parent for s in self.sessions.values() if s.id and s.parent}
+        aliases = self.identities()
+        links = {s.id: aliases.get(s.parent, s.parent) for s in self.sessions.values() if s.id and s.parent}
         for session in self.sessions.values():
             for agent_id in session.delegated:
+                agent_id = aliases.get(agent_id, agent_id)
                 if session.id and agent_id != session.id:
                     links.setdefault(agent_id, session.id)
         return links
@@ -331,7 +340,8 @@ class Monitor:
     def workers_for(self, root):
         by_id = {s.id: s for s in self.sessions.values() if s.id}
         links = self.parent_links()
-        delegated = {aid: worker for s in self.sessions.values() for aid, worker in s.delegated.items()}
+        aliases = self.identities()
+        delegated = {aliases.get(aid, aid): worker for s in self.sessions.values() for aid, worker in s.delegated.items()}
         descendants = {root.id}
         while True:
             new = {aid for aid, parent in links.items() if parent in descendants} - descendants

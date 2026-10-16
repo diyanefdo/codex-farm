@@ -7,7 +7,7 @@ import os
 import re
 from pathlib import Path
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 
 @dataclass
@@ -29,6 +29,8 @@ class Session:
     worker: Worker = field(default_factory=lambda: Worker(''))
     offset: int = 0
     touched: float = 0
+    pending_spawns: dict = field(default_factory=dict)
+    delegated: dict = field(default_factory=dict)
 
     def update(self):
         try:
@@ -67,7 +69,11 @@ class Session:
             self.worker.name = p.get('agent_nickname') or ('Hand ' + self.id[:6] if self.parent else 'Manager')
         elif kind == 'event_msg':
             typ = p.get('type')
-            if typ in ('task_started', 'turn_started'):
+            if typ == 'collab_agent_spawn_begin':
+                self.pending_spawns[p.get('call_id', '')] = {'message': p.get('prompt', '')}
+            elif typ == 'collab_agent_spawn_end':
+                self.record_spawn(p.get('call_id', ''), p.get('new_agent_id'), p)
+            elif typ in ('task_started', 'turn_started'):
                 self.worker.state = 'working'
             elif typ in ('task_complete', 'turn_complete'):
                 self.worker.state = 'done'
@@ -88,9 +94,22 @@ class Session:
                 if p.get('role') == 'user':
                     self.worker.goal = text
                     self.worker.state = 'working'
+        elif kind == 'response_item' and p.get('type') == 'function_call_output':
+            call_id = p.get('call_id', '')
+            if call_id in self.pending_spawns:
+                try:
+                    output = p.get('output', '{}')
+                    result = json.loads(output) if isinstance(output, str) else output
+                    if isinstance(result, dict):
+                        self.record_spawn(call_id, result.get('agent_id'), result)
+                    else:
+                        self.pending_spawns.pop(call_id, None)
+                except (ValueError, TypeError):
+                    self.pending_spawns.pop(call_id, None)
         elif kind == 'response_item' and p.get('type') == 'function_call':
             self.worker.state = 'working'
             name = p.get('name', 'tool')
+            args = {}
             try:
                 args = json.loads(p.get('arguments', '{}'))
                 if not isinstance(args, dict):
@@ -98,7 +117,17 @@ class Session:
                 detail = args.get('cmd') or args.get('command') or args.get('description') or ''
             except (ValueError, TypeError):
                 detail = ''
+            if name.rsplit('.', 1)[-1] == 'spawn_agent' and p.get('call_id'):
+                self.pending_spawns[p['call_id']] = args
             self.worker.task = f'{name}: {detail}' if detail else name
+
+    def record_spawn(self, call_id, agent_id, result):
+        args = self.pending_spawns.pop(call_id, {})
+        if not isinstance(agent_id, str) or not agent_id or result.get('error'):
+            return
+        task = args.get('message') or args.get('task') or result.get('prompt') or 'Delegated task; waiting for agent log'
+        name = result.get('nickname') or args.get('name') or args.get('agent_type') or ('Hand ' + agent_id[:6])
+        self.delegated[agent_id] = Worker(agent_id, str(name), str(task), 'delegated', self.id, str(task))
 
 
 def is_codex_name(name):
@@ -228,20 +257,40 @@ class Monitor:
             session.update()
         return processes()
 
+    def parent_links(self):
+        links = {s.id: s.parent for s in self.sessions.values() if s.id and s.parent}
+        for session in self.sessions.values():
+            for agent_id in session.delegated:
+                if session.id and agent_id != session.id:
+                    links.setdefault(agent_id, session.id)
+        return links
+
     def workers_for(self, root):
         by_id = {s.id: s for s in self.sessions.values() if s.id}
+        links = self.parent_links()
+        delegated = {aid: worker for s in self.sessions.values() for aid, worker in s.delegated.items()}
         descendants = {root.id}
         while True:
-            new = {s.id for s in by_id.values() if s.parent in descendants} - descendants
+            new = {aid for aid, parent in links.items() if parent in descendants} - descendants
             if not new:
                 break
             descendants |= new
-        return [root.worker] + [by_id[i].worker for i in sorted(descendants - {root.id})]
+        workers = [root.worker]
+        for aid in sorted(descendants - {root.id}):
+            if aid in by_id:
+                worker = by_id[aid].worker
+                if worker.name == 'Manager':
+                    worker = replace(worker, name=delegated[aid].name if aid in delegated else 'Hand ' + aid[:6])
+                workers.append(worker)
+            elif aid in delegated:
+                workers.append(delegated[aid])
+        return workers
 
     def cards(self, procs, sessions_only=False):
         process_cards, linked = [], set()
+        parents = self.parent_links()
         for p in procs:
-            exact = [s for s in self.sessions.values() if str(s.path) in p['logs'] and not s.parent]
+            exact = [s for s in self.sessions.values() if str(s.path) in p['logs'] and s.id not in parents]
             # CWD alone is ambiguous: never attribute another terminal's work.
             root = max(exact, key=lambda s: s.touched) if exact else None
             if root:
@@ -253,7 +302,7 @@ class Monitor:
         # A log is useful even when the writer has closed its file descriptor.
         # Keep these separate from process cards: modification time cannot prove PID identity.
         cutoff = time.time() - (86400 if sessions_only else 900)
-        roots = [s for s in self.sessions.values() if s.id and not s.parent and s.touched >= cutoff
+        roots = [s for s in self.sessions.values() if s.id and s.id not in parents and s.touched >= cutoff
                  and (sessions_only or s.id not in linked)]
         roots.sort(key=lambda s: s.touched, reverse=True)
         log_cards = []

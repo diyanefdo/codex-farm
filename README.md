@@ -2,6 +2,25 @@
 
 A small, read-only Linux terminal dashboard for Codex CLI sessions. Original ASCII farm scenery, warm terminal colors, a desk for each manager, and animated farmhands for agents and nested subagents. Inspired by cozy farming games; no game assets are used.
 
+## Branches
+
+- `main`: generic Codex CLI dashboard, session activity, and standard agent tracking.
+- [`qgenie`](https://github.com/diyanefdo/codex-farm/tree/qgenie): the working QGenie variant, including custom executable names, `spawn` tool results, and thread-ID matching.
+
+To run the QGenie version from an existing clone:
+
+```bash
+git fetch origin
+git switch qgenie
+python3 farm.py --sessions
+```
+
+For a fresh clone:
+
+```bash
+git clone --branch qgenie https://github.com/diyanefdo/codex-farm.git
+```
+
 ## Run
 
 Requires Linux, Python 3.10+ with curses, and an interactive terminal. No pip dependencies.
@@ -30,9 +49,9 @@ python3 farm.py --codex-home ~/.codex --refresh 2
 
 ## Live discovery and current limits
 
-The dashboard discovers native `codex` executables, platform-specific binary names, and Node/Bun Codex CLI launchers through Linux `/proc`. QGenie `codex-qgenie-native` binaries and `codex-qgenie-node` CLI launchers are also supported. Code host processes and Linux sandbox helpers are excluded. A Node launcher and its native child appear as one instance. Missing working-directory or stdin links do not hide a detected process. It links an instance to a session only when that process has the session JSONL file open. Independently, LOG cards at the top show unlinked root sessions modified within the last 15 minutes, including their task, tool call, original prompt, and nested agents. They are labeled PID unverified because a log alone does not identify its terminal. Press `s` or start with `python3 farm.py --sessions` to view logs from the last 24 hours, newest first, without process cards. These are recorded session states, not proof that a process is still running. If Codex closes the log between writes or `/proc` access is restricted, the process still appears with a pointer to the LOG cards. It deliberately does not infer a link from the working directory, since several terminals can share one project. Custom wrappers with other script names may still need a discovery adapter.
+The dashboard discovers native `codex` executables, platform-specific binary names, and Node/Bun Codex CLI launchers through Linux `/proc`. Code host processes and Linux sandbox helpers are excluded. A Node launcher and its native child appear as one instance. Missing working-directory or stdin links do not hide a detected process. It links an instance to a session only when that process has the session JSONL file open. Independently, LOG cards at the top show unlinked root sessions modified within the last 15 minutes, including their task, tool call, original prompt, and nested agents. They are labeled PID unverified because a log alone does not identify its terminal. Press `s` or start with `python3 farm.py --sessions` to view logs from the last 24 hours, newest first, without process cards. These are recorded session states, not proof that a process is still running. If Codex closes the log between writes or `/proc` access is restricted, the process still appears with a pointer to the LOG cards. It deliberately does not infer a link from the working directory, since several terminals can share one project. Custom wrappers with other script names may still need a discovery adapter.
 
-Recent JSONL files (modified within 24 hours at discovery) under `sessions` and `archived_sessions` are parsed incrementally. Known files continue to be monitored. Agent trees use `session_meta.source.subagent.thread_spawn.parent_thread_id`; confirmed `spawn_agent` or QGenie `spawn` tool results and `collab_agent_spawn_begin` / `collab_agent_spawn_end` events also establish agent relationships when metadata is missing. A worker with state `delegated` shows its confirmed assignment; live task and lifecycle updates require its own log. Failed or unconfirmed spawn requests do not create workers. Tool calls and agent messages supply task labels. Worker states reflect log events, not CPU usage; a silent agent may still display its last task. The demo contains fictional activity and is always labeled.
+Recent JSONL files (modified within 24 hours at discovery) under `sessions` and `archived_sessions` are parsed incrementally. Known files continue to be monitored. Agent trees use `session_meta.source.subagent.thread_spawn.parent_thread_id`; confirmed `spawn_agent` tool results and `collab_agent_spawn_begin` / `collab_agent_spawn_end` events also establish agent relationships when metadata is missing. A worker with state `delegated` shows its confirmed assignment; live task and lifecycle updates require its own log. Failed or unconfirmed spawn requests do not create workers. Tool calls and agent messages supply task labels. Worker states reflect log events, not CPU usage; a silent agent may still display its last task. The demo contains fictional activity and is always labeled.
 
 This initial version has no controls for sending prompts, cancelling agents, or attaching to terminals. Large historical logs are read once at startup; very large session stores may make the first refresh slow.
 
@@ -40,7 +59,7 @@ This initial version has no controls for sending prompts, cancelling agents, or 
 
 A normal Codex turn can run entirely in the manager. Farmhands represent actual delegated agents; the dashboard does not create them. If your Codex build supports agents, ask it to delegate explicitly, for example: "Use two subagents: one to inspect the implementation and one to review the tests."
 
-After Codex confirms delegation, use `python3 farm.py --sessions` to see the team under its LOG manager. Relationships come from parent-session metadata, confirmed JSON `spawn_agent` / `spawn` results containing `agent_id`, `thread_id`, or `id` (including namespaced tools such as `functions.spawn`), or collaboration spawn events containing `new_agent_id`. Metadata `thread_id` values are matched to session IDs when a fork uses different identifiers for them. The child log supplies further activity when available. Custom QGenie formats may require another adapter; process detection alone does not guarantee its fork emits compatible delegation events.
+After Codex confirms delegation, use `python3 farm.py --sessions` to see the team under its LOG manager. Relationships come from parent-session metadata, confirmed JSON `spawn_agent` results containing `agent_id`, or collaboration spawn events containing `new_agent_id`. The child log supplies further activity when available. Custom Codex forks may require another adapter; process detection alone does not guarantee compatible delegation events.
 
 If a delegated agent appears as another manager, run `python3 farm.py --diagnose-agents`. This prints schemas from the eight most recently modified logs: metadata keys and value types, event and tool names, parsed session IDs, and counts of confirmed agents. It omits message text, tool argument values, and tool result values. Share that output to identify an unsupported fork-specific relationship format. Sessions cannot be grouped safely from a shared directory or similar task text alone.
 

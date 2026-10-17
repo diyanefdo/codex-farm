@@ -72,26 +72,3 @@ class AgentTests(unittest.TestCase):
         child = self.session('child')
         self.spawn(child, 'root')
         self.assertEqual(len(self.monitor.workers_for(self.root)), 2)
-
-    def test_qgenie_spawn_tool_groups_child_without_parent_metadata(self):
-        for tool in ('spawn', 'functions.spawn'):
-            for key in ('agent_id', 'thread_id', 'id'):
-                with self.subTest(tool=tool, key=key):
-                    self.setUp()
-                    self.spawn(self.root, name=tool, output={key: 'child'})
-                    self.session('child')
-                    cards = self.monitor.cards([], sessions_only=True)
-                    self.assertEqual(len(cards), 1)
-                    self.assertEqual([w.id for w in cards[0][2]], ['root', 'child'])
-
-    def test_qgenie_thread_id_alias_matches_child_session_id(self):
-        self.spawn(self.root, name='spawn', output={'thread_id': 'child-thread'})
-        child = self.session('child-session')
-        child.consume({'type': 'session_meta', 'payload': {'id': 'child-session', 'thread_id': 'child-thread'}})
-        self.assertEqual([w.id for w in self.monitor.workers_for(self.root)], ['root', 'child-session'])
-        self.assertEqual(len(self.monitor.cards([], sessions_only=True)), 1)
-
-    def test_spawn_prompt_is_shown_as_assignment(self):
-        self.root.consume({'type': 'response_item', 'payload': {'type': 'function_call', 'call_id': 'c', 'name': 'spawn', 'arguments': '{"prompt":"Review auth"}'}})
-        self.root.consume({'type': 'response_item', 'payload': {'type': 'function_call_output', 'call_id': 'c', 'output': '{"agent_id":"child"}'}})
-        self.assertEqual(self.monitor.workers_for(self.root)[1].task, 'Review auth')

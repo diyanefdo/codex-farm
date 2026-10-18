@@ -5,6 +5,7 @@ from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+import re
 from pathlib import Path
 import threading
 import time
@@ -13,6 +14,17 @@ from urllib.parse import parse_qs, urlsplit
 from farm import Monitor, demo_cards
 
 ASSETS = Path(__file__).parent / 'web'
+
+
+def loopback_authority(value):
+    """Parse only literal loopback authorities; reject suffixes and URL tricks."""
+    match = re.fullmatch(r'(localhost|127\.0\.0\.1|\[::1\])(?::([0-9]{1,5}))?', value, re.IGNORECASE)
+    if not match:
+        return None
+    port = int(match.group(2)) if match.group(2) else 80
+    if not 1 <= port <= 65535:
+        return None
+    return match.group(1).lower(), port
 
 
 class FarmState:
@@ -80,14 +92,28 @@ class FarmHandler(BaseHTTPRequestHandler):
         self.wfile.write(content)
 
     def do_GET(self):
-        port = self.server.server_port
-        allowed = {f'127.0.0.1:{port}', f'localhost:{port}'}
-        host = self.headers.get('Host', '')
-        origin = self.headers.get('Origin')
-        if host not in allowed or (origin and origin != 'http://' + host) or self.headers.get('Sec-Fetch-Site') == 'cross-site':
-            self.respond(403, b'Local requests only', 'text/plain; charset=utf-8')
+        # SSH may forward Windows localhost:9876 to Linux localhost:8765.
+        # Validate the loopback hostname, not the backend's listening port.
+        host_values = self.headers.get_all('Host', [])
+        host = host_values[0] if len(host_values) == 1 else ''
+        authority = loopback_authority(host)
+        origins = self.headers.get_all('Origin', [])
+        origin_ok = not origins or (len(origins) == 1 and origins[0].startswith('http://')
+                                    and loopback_authority(origins[0][7:]) == authority)
+        try:
+            url = urlsplit(self.path)
+        except ValueError:
+            self.respond(400, b'Invalid request path', 'text/plain; charset=utf-8')
             return
-        url = urlsplit(self.path)
+        # Opening the app from an external link is a normal browser navigation.
+        # This exception serves only the page shell, never the status API.
+        navigation = (url.path == '/' and not origins
+                      and self.headers.get('Sec-Fetch-Mode') == 'navigate'
+                      and self.headers.get('Sec-Fetch-Dest') == 'document')
+        cross_site = self.headers.get('Sec-Fetch-Site') == 'cross-site'
+        if authority is None or not origin_ok or (cross_site and not navigation):
+            self.respond(403, b'Local requests only. Open this app through http://127.0.0.1:YOUR_LOCAL_PORT using your SSH tunnel.', 'text/plain; charset=utf-8')
+            return
         if url.path == '/api/status':
             query = parse_qs(url.query)
             try:

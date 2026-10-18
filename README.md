@@ -43,6 +43,14 @@ ssh -N -L 8765:127.0.0.1:8765 your-user@linux-host
 
 Then open http://127.0.0.1:8765 in the Windows browser. The Python server continues to read the Linux machine’s processes and logs. No server bind-address change is needed.
 
+If the Windows port is busy, choose a different local port while keeping the Linux destination unchanged:
+
+```powershell
+ssh -N -L 9876:127.0.0.1:8765 your-user@linux-host
+```
+
+Open http://127.0.0.1:9876 for that tunnel. Loopback browser addresses (`127.0.0.1`, `localhost`, or `[::1]`) can use any valid local forwarded port. If you see "Local requests only", update and restart the Linux server, and use the localhost address in Windows rather than a Linux hostname or external proxy URL. Opening the page from a link is supported; foreign-origin requests to the status API remain blocked.
+
 ## Web checks
 
 ```bash

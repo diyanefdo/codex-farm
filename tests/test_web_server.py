@@ -134,3 +134,40 @@ class WebTests(unittest.TestCase):
         self.assertIn('200 OK', head)
         self.assertIn('Content-Type: text/javascript; charset=utf-8', head)
         self.assertEqual(body, b'export const layout = true;')
+
+
+    def test_forwarded_local_ports_are_accepted_for_same_origin_api_requests(self):
+        for host in ('127.0.0.1:9876', 'localhost:3000', '[::1]:5678', 'LOCALHOST:9876', 'localhost'):
+            with self.subTest(host=host):
+                head, body = self.request('/api/status?demo=1', host, 'Origin: http://' + host + '\r\nSec-Fetch-Site: same-origin\r\n')
+                self.assertIn('200 OK', head)
+                self.assertEqual(json.loads(body)['mode'], 'demo')
+        head, _ = self.request('/api/status?demo=1', 'localhost:80', 'Origin: http://localhost\r\n')
+        self.assertIn('200 OK', head)
+
+    def test_external_link_navigation_loads_page_but_not_private_api(self):
+        navigation = 'Sec-Fetch-Site: cross-site\r\nSec-Fetch-Mode: navigate\r\nSec-Fetch-Dest: document\r\n'
+        with patch('web_server.Monitor.scan', side_effect=AssertionError('navigation must not read sessions')):
+            head, body = self.request('/', 'localhost:9876', navigation)
+            self.assertIn('200 OK', head)
+            self.assertIn(b'id="world-viewport"', body)
+            for path in ('/api/status', '/api/status?demo=1', '/app.js'):
+                with self.subTest(path=path):
+                    head, _ = self.request(path, 'localhost:9876', navigation)
+                    self.assertIn('403 Forbidden', head)
+
+    def test_forwarding_does_not_allow_remote_hosts_or_mismatched_origins(self):
+        for host in ('localhost.evil.example:9876', '127.0.0.1.evil:9876', 'evil@localhost:9876', 'localhost:65536', 'localhost:0', 'localhost:bad', 'localhost:9876/path', 'localhost:9876,evil.example', '192.168.1.2:9876', ''):
+            with self.subTest(host=host), patch('web_server.Monitor.scan', side_effect=AssertionError('untrusted host read sessions')):
+                head, _ = self.request('/api/status', host)
+                self.assertIn('403 Forbidden', head)
+        for origin in ('https://evil.example', 'http://localhost:9877', 'http://127.0.0.1:9876', 'http://localhost:9876/evil', 'null'):
+            with self.subTest(origin=origin), patch('web_server.Monitor.scan', side_effect=AssertionError('untrusted origin read sessions')):
+                head, _ = self.request('/api/status', 'localhost:9876', 'Origin: ' + origin + '\r\n')
+                self.assertIn('403 Forbidden', head)
+
+    def test_cross_site_subresource_and_duplicate_host_are_rejected(self):
+        head, _ = self.request('/', 'localhost:9876', 'Sec-Fetch-Site: cross-site\r\nSec-Fetch-Mode: no-cors\r\nSec-Fetch-Dest: iframe\r\n')
+        self.assertIn('403 Forbidden', head)
+        head, _ = self.request('/api/status?demo=1', 'localhost:9876', 'Host: evil.example\r\n')
+        self.assertIn('403 Forbidden', head)

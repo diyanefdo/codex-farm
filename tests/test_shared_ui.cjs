@@ -190,6 +190,7 @@ test('polling updates the selected task, preserves focus, and creates spawned de
   assert.equal(app.world.querySelectorAll('.office').length, 1);
   assert.equal(app.world.querySelectorAll('.desk-button').length, 15);
   assert.match(app.byId.get('inspector').textContent, /Reviewing the new parser/);
+  assert.equal(app.world.querySelectorAll('.desk-preview-text')[1].textContent, 'Reviewing the new parser');
   assert.doesNotMatch(app.byId.get('inspector').textContent, /Task for alpha worker 1/);
   assert.equal(app.document.activeElement.dataset.deskKey, selected.dataset.deskKey);
   assert.notEqual(app.document.activeElement, selected);
@@ -209,8 +210,11 @@ test('zoom controls scale the whole shared world and respect their limits', asyn
   assert.equal(app.byId.get('zoom-out').disabled, true);
   app.byId.get('world-viewport').clientWidth = 778;
   app.byId.get('zoom-fit').onclick();
-  assert.equal(app.byId.get('zoom-label').textContent, '100%');
-  assert.equal(app.world.style.transform, 'scale(1)');
+  const fitted = vm.runInContext('({zoom: state.zoom, width: state.layout.width, height: state.layout.height})', app.context);
+  assert.ok(fitted.width * fitted.zoom <= 760);
+  assert.ok(fitted.height * fitted.zoom <= 360);
+  assert.equal(app.byId.get('zoom-label').textContent, Math.round(fitted.zoom * 100) + '%');
+  assert.equal(app.world.style.transform, 'scale(' + fitted.zoom + ')');
 });
 
 test('reordered status responses keep existing offices and agent desks in place', async () => {
@@ -325,4 +329,28 @@ test('invalid JSON, timeouts and connection errors have different recovery messa
   assert.match(app.byId.get('notice').textContent, /first scan.*large session logs/);
   await app.reply(new TypeError('Failed to fetch'));
   assert.match(app.byId.get('notice').textContent, /Failed to fetch/);
+});
+
+
+test('every manager and agent has a safe, short preview of current or previous work', async () => {
+  const farm = makeFarm('previews', 3);
+  farm.workers[0].state = 'working';
+  farm.workers[0].task = 'Building\n  the new login form';
+  farm.workers[1].state = 'done';
+  farm.workers[1].task = '<script>private task</script>';
+  farm.workers[2].task = 'A very long task '.repeat(20);
+  const app = await application([farm]);
+  const previews = app.world.querySelectorAll('.desk-preview');
+  assert.equal(previews.length, 3);
+  const labels = app.world.querySelectorAll('.desk-preview-label').map(e => e.textContent);
+  assert.equal(labels[0], 'Working on');
+  assert.equal(labels[1], 'Last worked on');
+  const text = app.world.querySelectorAll('.desk-preview-text');
+  assert.equal(text[0].textContent, 'Building the new login form');
+  assert.equal(text[1].textContent, '<script>private task</script>');
+  assert.equal(text[1].querySelectorAll('script').length, 0);
+  assert.ok(text[2].textContent.length <= 100);
+  assert.ok(text[2].textContent.endsWith('…'));
+  app.world.querySelectorAll('.desk-button')[2].onclick();
+  assert.ok(app.byId.get('inspector').textContent.includes(farm.workers[2].task));
 });

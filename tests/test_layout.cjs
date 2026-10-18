@@ -49,7 +49,7 @@ function checkBounds(layout) {
 }
 
 test('an empty world has deterministic usable bounds', () => {
-  assert.deepEqual(layoutOffices([]), {width: 760, height: 264, offices: []});
+  assert.deepEqual(layoutOffices([]), {width: 760, height: 304, offices: []});
 });
 
 test('offices with zero workers still reserve room and do not invent a manager', () => {
@@ -81,6 +81,23 @@ test('subagents receive individual desks in rows of three below the manager', ()
   assert.equal(desks[4].x, desks[1].x);
   assert.ok(desks[4].y > desks[3].y);
   assert.ok(desks[1].y >= desks[0].y + desks[0].height);
+  checkBounds(layout);
+});
+
+test('every desk reserves room for a name and three task preview lines', () => {
+  const layout = layoutOffices([farm('previews', 8)]);
+  const office = layout.offices[0];
+  const desks = office.desks;
+  assert.equal(desks[0].y, office.y + 52);
+  assert.equal(desks[1].y, office.y + 188);
+  assert.equal(desks[4].y - desks[1].y, 128);
+  for (const desk of desks) {
+    assert.equal(desk.width, 80);
+    assert.equal(desk.height, 104);
+    assert.ok(desk.y + 52 + 12 + 3 * 10 <= desk.y + desk.height,
+      'the name and three preview lines fit within ' + desk.workerId);
+  }
+  assert.equal(office.y + office.height - (desks[7].y + desks[7].height), 32);
   checkBounds(layout);
 });
 

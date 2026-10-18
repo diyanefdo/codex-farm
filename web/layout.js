@@ -5,15 +5,15 @@
   const OFFICE_WIDTH = 320;
   const OFFICE_GAP = 40;
   const WORLD_WIDTH = PADDING * 2 + OFFICE_WIDTH * 2 + OFFICE_GAP;
-  const MIN_OFFICE_HEIGHT = 184;
+  const MIN_OFFICE_HEIGHT = 224;
 
   /**
    * Place every manager and worker in one shared world.
    *
    * The first worker belongs to the manager's desk. Remaining workers get one
    * desk each, growing the room downward in rows of three. Desk bounds include
-   * space for the character and name as well as the furniture. All coordinates
-   * are absolute world pixels; input objects are never modified.
+   * space for the character, furniture, name and three-line task preview. All
+   * coordinates are absolute world pixels; input objects are never modified.
    */
   function layoutOffices(farms) {
     const offices = [];
@@ -27,7 +27,7 @@
         const x = PADDING + column * (OFFICE_WIDTH + OFFICE_GAP);
         const y = nextRowY;
         const agentRows = Math.ceil(Math.max(0, workers.length - 1) / 3);
-        const height = Math.max(MIN_OFFICE_HEIGHT, 152 + agentRows * 88);
+        const height = Math.max(MIN_OFFICE_HEIGHT, 196 + agentRows * 128);
         const desks = workers.map((worker, workerIndex) => {
           const manager = workerIndex === 0;
           const agentIndex = workerIndex - 1;
@@ -35,9 +35,9 @@
             workerId: worker.id,
             index: workerIndex,
             x: x + (manager ? 120 : 24 + (agentIndex % 3) * 96),
-            y: y + (manager ? 52 : 144 + Math.floor(agentIndex / 3) * 88),
+            y: y + (manager ? 52 : 188 + Math.floor(agentIndex / 3) * 128),
             width: 80,
-            height: 64,
+            height: 104,
             manager
           };
         });

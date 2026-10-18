@@ -3,7 +3,18 @@ const $ = id => document.getElementById(id);
 const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
 let reduced = motionPreference.matches;
 const state = {demo:false, history:false, farms:[], selected:null, selectedWorker:null, zoom:1, autoZoom:true, motion:!reduced, order:[], deskOrder:new Map(), layout:null, filter:'all', search:'', pending:false, signature:'', receivedStatus:false};
-const palette = ['#627f9f','#b66d53','#8d7ba0','#bf9d56','#6b9474','#c58a98'];
+const palette = ['#388cc5','#e2765d','#9670ca','#e4ad3c','#39a58a','#cc70a0'];
+const roomThemes = [
+ {wall:'#a66c3d',floor:'#f3d9a3',plank:'#dfba7f',header:'#ffe5a5',trim:'#d8a557',rug:'#82bd8d',rugLight:'#b5db9b'},
+ {wall:'#8071a7',floor:'#e8def2',plank:'#cfbde2',header:'#ded0f5',trim:'#ac94d0',rug:'#b79bd8',rugLight:'#dac6ed'},
+ {wall:'#488b83',floor:'#deedc9',plank:'#b5d5ad',header:'#bde5d9',trim:'#7bbba5',rug:'#7ac4c5',rugLight:'#bae1d7'},
+ {wall:'#b87683',floor:'#f6e0ce',plank:'#e5b9ab',header:'#ffd1db',trim:'#d998a3',rug:'#df9caf',rugLight:'#f1c7d2'},
+ {wall:'#578ba8',floor:'#e1e9de',plank:'#bed1c9',header:'#bce2f2',trim:'#8abed3',rug:'#81badd',rugLight:'#badced'},
+ {wall:'#ae7653',floor:'#f5dfba',plank:'#dfbc91',header:'#ffd4af',trim:'#dcac78',rug:'#e4b36f',rugLight:'#f4d393'}
+];
+function themeIndex(id){let hash=0;for(const char of String(id))hash=(hash*31+char.charCodeAt(0))>>>0;return hash%roomThemes.length;}
+function taskPreview(worker){const text=String(worker.task||worker.goal||'Waiting for a task').replace(/\s+/g,' ').trim();return text.length>100?text.slice(0,97).trimEnd()+'…':text;}
+function taskPreviewLabel(worker){return worker.state==='working'?'Working on':worker.state==='done'?'Last worked on':worker.state==='paused'?'Paused on':worker.state==='delegated'?'Assigned':'Last task';}
 function el(tag, cls, text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;}
 function rect(c,x,y,w,h,color){c.fillStyle=color;c.fillRect(Math.round(x),Math.round(y),w,h);}
 function person(c,x,y,color,frame=0,manager=false,pose=null){
@@ -15,35 +26,35 @@ function person(c,x,y,color,frame=0,manager=false,pose=null){
   rect(c,x-1,y-7,8,8,'#efc08b');rect(c,x-2,y-9,10,4,'#71523e');rect(c,x+(pose&&pose.facing===-1?0:5),y-4,1,2,'#473f37');
   rect(c,x-4,y-9,14,3,manager?'#b37343':'#d5b877');rect(c,x-1,y-13,8,5,manager?'#ae6437':'#e0c583');
 }
-function tree(c,x,y,variant=0){rect(c,x-3,y,7,24,'#83683f');rect(c,x-14,y-10,30,15,'#508051');rect(c,x-20,y-24,41,20,'#5c8d52');rect(c,x-14,y-35,28,17,'#76a45e');rect(c,x-7,y-41,15,13,'#8eb86d');rect(c,x-17,y-19,8,7,'#86ac61');rect(c,x+8,y-7,10,7,'#3f714a');if(variant){rect(c,x+10,y-22,3,4,'#d7a260');rect(c,x-7,y-28,4,4,'#dca55b');}}
+function tree(c,x,y,variant=0){rect(c,x-3,y,7,24,'#83683f');rect(c,x-14,y-10,30,15,'#2b8857');rect(c,x-20,y-24,41,20,'#429d5c');rect(c,x-14,y-35,28,17,'#6bb960');rect(c,x-7,y-41,15,13,'#93d575');rect(c,x-17,y-19,8,7,'#81ca65');rect(c,x+8,y-7,10,7,'#3f714a');if(variant){rect(c,x+10,y-22,3,4,'#f4816d');rect(c,x-7,y-28,4,4,'#ffbb5e');}}
 function fence(c,x,y,w){rect(c,x,y+3,w,3,'#e6d4a0');rect(c,x,y+11,w,3,'#d6bc86');for(let n=0;n<w;n+=18){rect(c,x+n,y,4,20,'#f1dca8');rect(c,x+n+3,y+2,2,18,'#bba16c');}}
 function scene(canvas, layout, farms, tick){
  const c=canvas.getContext('2d');c.imageSmoothingEnabled=false;
  const W=layout.width,H=layout.height;
- rect(c,0,0,W,H,'#accb86');
+ rect(c,0,0,W,H,'#83c76a');
  for(let y=0;y<H;y+=13)for(let x=0;x<W;x+=17){
    const seed=(x*13+y*29)%97;
-   rect(c,x+seed%9,y+seed%7,2,2,seed%5?'#9fbe79':'#c1d99a');
-   if(seed<5){rect(c,x+4,y+3,2,2,'#f5dfa1');rect(c,x+3,y+5,4,2,'#c5db94');}
+   rect(c,x+seed%9,y+seed%7,2,2,seed%5?'#71b95e':'#a4db7d');
+   if(seed<8){const petal=['#ffce5c','#e791ca','#b3a1f0','#fff2bd'][seed%4];rect(c,x+4,y+3,2,2,petal);rect(c,x+3,y+5,4,2,petal);rect(c,x+4,y+5,2,2,'#fff0a0');}
  }
  // Every office opens onto the same continuous village lane.
- rect(c,358,0,44,H,'#d2bf93');rect(c,362,0,36,H,'#e0cca0');
+ rect(c,358,0,44,H,'#d8b877');rect(c,362,0,36,H,'#f0d49a');
  for(let y=7;y<H;y+=21){rect(c,366+(y%11),y,5,2,'#c6af85');rect(c,390,y+9,4,2,'#c6af85');}
  for(let i=0;i<layout.offices.length;i+=2){
    const pair=layout.offices.slice(i,i+2),bottom=Math.max(...pair.map(o=>o.y+o.height));
-   rect(c,25,bottom+8,710,20,'#d8c69b');
+   rect(c,25,bottom+8,710,20,'#ebc98b');
  }
  for(let y=70;y<H;y+=156){tree(c,16,y,1);tree(c,744,y+45);}
  fence(c,25,16,260);fence(c,475,16,260);
  const byId=new Map(farms.map(f=>[f.id,f]));
  for(const office of layout.offices){
    const farm=byId.get(office.farmId);if(!farm)continue;
-   const {x,y,width:w,height:h}=office;
-   rect(c,x+4,y+5,w,h,'#6b824d55');rect(c,x,y,w,h,'#806746');rect(c,x+5,y+5,w-10,h-10,'#e1cda0');
+   const {x,y,width:w,height:h}=office,theme=roomThemes[themeIndex(farm.id)];
+   rect(c,x+4,y+5,w,h,'#3f795455');rect(c,x,y,w,h,theme.wall);rect(c,x+5,y+5,w-10,h-10,theme.floor);
    // A cutaway office: timber floor, thick walls, green rug and an open door.
-   for(let row=y+8;row<y+h-7;row+=12){rect(c,x+6,row,w-12,1,'#cdb98b');for(let col=x+12+(row%3)*13;col<x+w-8;col+=58)rect(c,col,row,1,12,'#d4bf91');}
-   rect(c,x+8,y+8,w-16,28,'#f2e2bb');rect(c,x+8,y+35,w-16,2,'#baa17b');
-   rect(c,x+w/2-17,y+h-5,34,9,'#d8c69b');
+   for(let row=y+8;row<y+h-7;row+=12){rect(c,x+6,row,w-12,1,theme.plank);for(let col=x+12+(row%3)*13;col<x+w-8;col+=58)rect(c,col,row,1,12,theme.plank);}
+   rect(c,x+8,y+8,w-16,28,theme.header);rect(c,x+8,y+35,w-16,2,theme.trim);
+   rect(c,x+w/2-17,y+h-5,34,9,'#ebc98b');
    // Window and bookshelf, beside the manager's desk.
    rect(c,x+24,y+52,34,30,'#8d7659');rect(c,x+27,y+55,28,24,'#adced0');rect(c,x+39,y+54,3,26,'#f0dfb4');rect(c,x+27,y+66,28,2,'#f0dfb4');
    rect(c,x+w-66,y+52,42,30,'#92754e');
@@ -52,8 +63,9 @@ function scene(canvas, layout, farms, tick){
    for(const plantX of [x+16,x+w-26]){rect(c,plantX,y+h-25,10,12,'#b9815c');rect(c,plantX-3,y+h-35,16,12,'#7e9b5c');rect(c,plantX+2,y+h-40,7,12,'#98af70');}
    for(const desk of office.desks){
      const worker=farm.workers[desk.index],dx=desk.x,dy=desk.y;
-     rect(c,dx+3,dy+5,desk.width-6,desk.height-8,desk.manager?'#b8bd87':'#c4c59b');
-     rect(c,dx+5,dy+7,desk.width-10,desk.height-12,desk.manager?'#ced09b':'#d5d3ad');
+     rect(c,dx+3,dy+5,desk.width-6,desk.height-8,theme.rug);
+     rect(c,dx+5,dy+7,desk.width-10,desk.height-12,theme.rugLight);
+     rect(c,dx+5,dy+7,desk.width-10,2,theme.header);
      const moving=state.motion&&!reduced;
      const pose=workerMotion(worker,tick,desk.index+layout.offices.indexOf(office)*3,moving);
      const pacing=pose.activity==='pacing',px=dx+36+pose.x,py=dy+(pacing?38:24)+pose.y;
@@ -83,7 +95,7 @@ function view(){let farms=state.farms.filter(f=>state.filter==='all'||(state.fil
 function applyZoom(){
  const layout=state.layout;if(!layout)return;
  const viewport=$('world-viewport'),vw=viewport.clientWidth||800,vh=viewport.clientHeight||600;
- if(state.autoZoom)state.zoom=Math.max(.5,Math.min(2,(vw-64)/layout.width));
+ if(state.autoZoom)state.zoom=Math.max(vw<=600?1:.5,Math.min(2,(vw-64)/layout.width));
  const width=layout.width*state.zoom,height=layout.height*state.zoom;
  const topPadding=vw<=850?140:92,bottomPadding=100;
  $('world-space').style.transform=`scale(${state.zoom})`;
@@ -115,16 +127,19 @@ function render(){
  const byId=new Map(farms.map(f=>[f.id,f]));
  for(const office of layout.offices){
    const farm=byId.get(office.farmId),room=el('section','office'+(farm.id===state.selected?' selected':''));
-   room.style.left=office.x+'px';room.style.top=office.y+'px';room.style.width=office.width+'px';room.style.height=office.height+'px';room.setAttribute('aria-label',farm.name+' office, '+farm.workers.length+' desks');
-   const heading=el('button','office-title',farm.name+' · '+Math.max(0,farm.workers.length-1)+' agents');heading.title=farm.title+' — '+label(farm);heading.onclick=()=>select(farm.id);room.append(heading);
+   room.style.left=office.x+'px';room.style.top=office.y+'px';room.style.width=office.width+'px';room.style.height=office.height+'px';room.setAttribute('aria-label',farm.name+' office, '+farm.workers.length+' desks');room.dataset.theme=String(themeIndex(farm.id));
+   const agentCount=Math.max(0,farm.workers.length-1);
+   const heading=el('button','office-title',farm.name+' · '+agentCount+(agentCount===1?' agent':' agents'));heading.title=farm.title+' — '+label(farm);heading.onclick=()=>select(farm.id);room.append(heading);
    for(const desk of office.desks){
      const worker=farm.workers[desk.index],isSelected=state.selected===farm.id&&state.selectedWorker===worker.id;
-     const button=el('button','desk-button'+(desk.manager?' manager':'')+(isSelected?' selected':''));
+     const button=el('button','desk-button status-'+worker.state+(desk.manager?' manager':'')+(isSelected?' selected':''));
      button.style.left=(desk.x-office.x)+'px';button.style.top=(desk.y-office.y)+'px';button.style.width=desk.width+'px';button.style.height=desk.height+'px';
      button.dataset.deskKey=JSON.stringify([farm.id,worker.id]);button.setAttribute('aria-pressed',String(isSelected));
      const name=desk.manager?'Manager':worker.name;
      button.setAttribute('aria-label',name+' in '+farm.name+', '+worker.state+'. '+worker.task);button.title=name+' · '+worker.state+'\n'+worker.task;
-     const caption=el('span','desk-caption');caption.append(el('i','state-dot '+worker.state),el('span','',name));button.append(caption);
+     const caption=el('span','desk-caption');caption.append(el('i','state-dot '+worker.state),el('span','',name));
+     const preview=el('span','desk-preview');preview.append(el('span','desk-preview-label',taskPreviewLabel(worker)),el('span','desk-preview-text',taskPreview(worker)));
+     button.append(caption,preview);
      button.onclick=()=>select(farm.id,worker.id);room.append(button);
    }
    world.append(room);

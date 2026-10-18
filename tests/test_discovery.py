@@ -77,6 +77,33 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual([p['pid'] for p in found], [10, 11])
         self.assertEqual(found[1]['cwd'], '(working directory unavailable)')
 
+    def test_process_start_ticks_distinguish_reused_pid(self):
+        entry = self.proc_entry(42)
+        # A full /proc/PID/stat record, including a comm with spaces and parentheses.
+        stat = ('42 (codex (worker)) S 1 42 42 34818 42 4194304 100 0 0 0 '
+                '10 5 0 0 20 0 1 0 {start} 1048576 256 18446744073709551615 '
+                '4194304 4198400 140737488347136 0 0 0 0 0 0 0 0 0 17 0 0 '
+                '0 0 0 0 6291456 6295552 10485760 140737488347200 '
+                '140737488347216 140737488347216 140737488351232 0')
+        (entry / 'stat').write_text(stat.format(start=123456))
+        original = processes(self.home)[0]
+        self.assertEqual(original['start_ticks'], 123456)
+        (entry / 'stat').write_text(stat.format(start=987654))
+        replacement = processes(self.home)[0]
+        self.assertEqual(replacement['start_ticks'], 987654)
+        self.assertEqual(original['pid'], replacement['pid'])
+
+    def test_missing_or_malformed_stat_does_not_hide_running_process(self):
+        entry = self.proc_entry(42)
+        for stat in (None, 'invalid stat', '42 (codex worker) S 1 0 0',
+                     '42 (codex) S 1 42 42 0 0 0 0 0 0 0 0 0 0 0 20 0 1 0 invalid'):
+            with self.subTest(stat=stat):
+                if stat is not None:
+                    (entry / 'stat').write_text(stat)
+                found = processes(self.home)
+                self.assertEqual(found, [{'pid': 42, 'cwd': '/work/project',
+                                         'tty': '/dev/pts/2', 'logs': set()}])
+
     def test_unrelated_agents_excluded_and_latest_open_root_chosen(self):
         monitor = Monitor(self.home)
         def session(sid, parent='', touched=0):

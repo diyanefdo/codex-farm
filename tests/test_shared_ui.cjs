@@ -109,8 +109,10 @@ async function application(farms, reducedMotion = false) {
   const requests = [];
   const intervals = [];
   const frames = [];
+  const events = new Map();
   const context = vm.createContext({
     document, URLSearchParams, AbortSignal,
+    addEventListener: (name, callback) => events.set(name, callback),
     matchMedia: () => ({matches: reducedMotion}),
     requestAnimationFrame: callback => frames.push(callback),
     setInterval: (callback, delay) => intervals.push({callback, delay}),
@@ -128,7 +130,7 @@ async function application(farms, reducedMotion = false) {
   await new Promise(setImmediate);
   assert.equal(byId.get('connection-dot').className, 'good');
   return {
-    document, byId, context, requests, intervals, frames,
+    document, byId, context, requests, intervals, frames, events,
     world: byId.get('world-space'),
     async reply(response) {
       responses.push(response);
@@ -204,14 +206,15 @@ test('zoom controls scale the whole shared world and respect their limits', asyn
   assert.equal(app.byId.get('zoom-label').textContent, '200%');
   assert.equal(app.byId.get('zoom-in').disabled, true);
   assert.equal(app.world.style.transform, 'scale(2)');
-  assert.equal(app.byId.get('world-sizer').style.width, '1520px');
+  const layoutWidth = vm.runInContext('state.layout.width', app.context);
+  assert.equal(app.byId.get('world-sizer').style.width, Math.max(800, layoutWidth * 2) + 'px');
   for (let i = 0; i < 10; i++) app.byId.get('zoom-out').onclick();
   assert.equal(app.byId.get('zoom-label').textContent, '25%');
   assert.equal(app.byId.get('zoom-out').disabled, true);
   app.byId.get('world-viewport').clientWidth = 778;
   app.byId.get('zoom-fit').onclick();
   const fitted = vm.runInContext('({zoom: state.zoom, width: state.layout.width, height: state.layout.height})', app.context);
-  assert.ok(fitted.width * fitted.zoom <= 760);
+  assert.ok(fitted.width * fitted.zoom <= 730);
   assert.ok(fitted.height * fitted.zoom <= 360);
   assert.equal(app.byId.get('zoom-label').textContent, Math.round(fitted.zoom * 100) + '%');
   assert.equal(app.world.style.transform, 'scale(' + fitted.zoom + ')');
@@ -353,4 +356,36 @@ test('every manager and agent has a safe, short preview of current or previous w
   assert.ok(text[2].textContent.endsWith('…'));
   app.world.querySelectorAll('.desk-button')[2].onclick();
   assert.ok(app.byId.get('inspector').textContent.includes(farm.workers[2].task));
+});
+
+
+test('four uneven active teams automatically fit within both viewport dimensions', async () => {
+  const app = await application([makeFarm('one', 2), makeFarm('two', 4), makeFarm('three', 7), makeFarm('four', 1)]);
+  const viewport = app.byId.get('world-viewport');
+  viewport.clientWidth = 1600; viewport.clientHeight = 900;
+  app.events.get('resize')();
+  const geometry = vm.runInContext('({width: state.layout.width, height: state.layout.height, zoom: state.zoom})', app.context);
+  assert.ok(geometry.width * geometry.zoom <= 1552 + 0.001);
+  assert.ok(geometry.height * geometry.zoom <= 708 + 0.001);
+  assert.equal(app.world.querySelectorAll('.office').length, 4);
+  assert.equal(app.world.querySelectorAll('.desk-button').length, 14);
+  assert.equal(app.byId.get('world-sizer').style.width, '1600px');
+  assert.equal(app.byId.get('world-sizer').style.height, '900px');
+});
+
+test('Fit restores automatic overview after zooming and continues fitting new teams', async () => {
+  const app = await application([makeFarm('one', 3), makeFarm('two', 3)]);
+  app.byId.get('zoom-in').onclick();
+  assert.equal(vm.runInContext('state.autoZoom', app.context), false);
+  app.byId.get('world-viewport').scrollTop = 200;
+  app.byId.get('world-viewport').scrollLeft = 100;
+  app.byId.get('zoom-fit').onclick();
+  assert.equal(vm.runInContext('state.autoZoom', app.context), true);
+  assert.equal(app.byId.get('world-viewport').scrollTop, 0);
+  assert.equal(app.byId.get('world-viewport').scrollLeft, 0);
+  await app.poll(Array.from({length: 8}, (_, i) => makeFarm('team' + i, 10)));
+  const geometry = vm.runInContext('({width: state.layout.width, height: state.layout.height, zoom: state.zoom})', app.context);
+  assert.ok(geometry.width * geometry.zoom <= 752 + 0.001);
+  assert.ok(geometry.height * geometry.zoom <= 360 + 0.001);
+  assert.equal(app.world.querySelectorAll('.desk-button').length, 80);
 });

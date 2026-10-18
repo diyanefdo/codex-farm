@@ -37,15 +37,19 @@ function scene(canvas, layout, farms, tick){
    rect(c,x+seed%9,y+seed%7,2,2,seed%5?'#71b95e':'#a4db7d');
    if(seed<8){const petal=['#ffce5c','#e791ca','#b3a1f0','#fff2bd'][seed%4];rect(c,x+4,y+3,2,2,petal);rect(c,x+3,y+5,4,2,petal);rect(c,x+4,y+5,2,2,'#fff0a0');}
  }
- // Every office opens onto the same continuous village lane.
- rect(c,358,0,44,H,'#d8b877');rect(c,362,0,36,H,'#f0d49a');
- for(let y=7;y<H;y+=21){rect(c,366+(y%11),y,5,2,'#c6af85');rect(c,390,y+9,4,2,'#c6af85');}
- for(let i=0;i<layout.offices.length;i+=2){
-   const pair=layout.offices.slice(i,i+2),bottom=Math.max(...pair.map(o=>o.y+o.height));
-   rect(c,25,bottom+8,710,20,'#ebc98b');
+ // Lanes follow the adaptive office grid, rather than a fixed two-column map.
+ const columns=[...new Set(layout.offices.map(o=>o.x))].sort((a,b)=>a-b);
+ const laneXs=columns.length>1?columns.slice(1).map((x,i)=>(columns[i]+320+x)/2-20):[8];
+ for(const laneX of laneXs){
+   rect(c,laneX,0,40,H,'#d8b877');rect(c,laneX+3,0,34,H,'#f0d49a');
+   for(let y=7;y<H;y+=21){rect(c,laneX+9+(y%11),y,5,2,'#c6af85');rect(c,laneX+30,y+9,4,2,'#c6af85');}
  }
- for(let y=70;y<H;y+=156){tree(c,16,y,1);tree(c,744,y+45);}
- fence(c,25,16,260);fence(c,475,16,260);
+ for(const rowY of new Set(layout.offices.map(o=>o.y))){
+   const bottom=Math.max(...layout.offices.filter(o=>o.y===rowY).map(o=>o.y+o.height));
+   rect(c,25,bottom+8,W-50,20,'#ebc98b');
+ }
+ for(let y=70;y<H;y+=156){tree(c,16,y,1);tree(c,W-16,y+45);}
+ fence(c,25,16,Math.max(0,W-50));
  const byId=new Map(farms.map(f=>[f.id,f]));
  for(const office of layout.offices){
    const farm=byId.get(office.farmId);if(!farm)continue;
@@ -55,12 +59,10 @@ function scene(canvas, layout, farms, tick){
    for(let row=y+8;row<y+h-7;row+=12){rect(c,x+6,row,w-12,1,theme.plank);for(let col=x+12+(row%3)*13;col<x+w-8;col+=58)rect(c,col,row,1,12,theme.plank);}
    rect(c,x+8,y+8,w-16,28,theme.header);rect(c,x+8,y+35,w-16,2,theme.trim);
    rect(c,x+w/2-17,y+h-5,34,9,'#ebc98b');
-   // Window and bookshelf, beside the manager's desk.
-   rect(c,x+24,y+52,34,30,'#8d7659');rect(c,x+27,y+55,28,24,'#adced0');rect(c,x+39,y+54,3,26,'#f0dfb4');rect(c,x+27,y+66,28,2,'#f0dfb4');
-   rect(c,x+w-66,y+52,42,30,'#92754e');
-   for(let b=0;b<6;b++)rect(c,x+w-62+b*6,y+57+(b%2)*3,4,17-(b%2)*3,palette[b]);
-   rect(c,x+w-66,y+78,42,3,'#725c3e');
-   for(const plantX of [x+16,x+w-26]){rect(c,plantX,y+h-25,10,12,'#b9815c');rect(c,plantX-3,y+h-35,16,12,'#7e9b5c');rect(c,plantX+2,y+h-40,7,12,'#98af70');}
+   // Compact offices keep decoration along the walls, clear of all desks.
+   rect(c,x+23,y+h-20,43,9,'#92754e');
+   for(let b=0;b<6;b++)rect(c,x+27+b*6,y+h-21+(b%2),4,8,palette[b]);
+   for(const plantX of [x+6,x+w-15]){rect(c,plantX,y+h-18,9,10,'#b9815c');rect(c,plantX-1,y+h-27,11,9,'#58a96e');rect(c,plantX+2,y+h-32,5,9,'#92d178');}
    for(const desk of office.desks){
      const worker=farm.workers[desk.index],dx=desk.x,dy=desk.y;
      rect(c,dx+3,dy+5,desk.width-6,desk.height-8,theme.rug);
@@ -92,18 +94,24 @@ function avatar(index){const canvas=el('canvas','avatar');canvas.width=28;canvas
 function working(f){return f.workers.some(w=>w.state==='working');}
 function label(f){return f.source==='demo'?'FICTIONAL DEMO':f.source==='session'?'RECORDED SESSION · PID UNVERIFIED':f.linked?'LINKED TERMINAL':'PROCESS · SESSION UNLINKED';}
 function view(){let farms=state.farms.filter(f=>state.filter==='all'||(state.filter==='working'?working(f):!working(f)));const q=state.search.toLowerCase();if(q)farms=farms.filter(f=>[f.name,f.directory,...f.workers.map(w=>w.name+' '+w.task+' '+w.goal)].join(' ').toLowerCase().includes(q));return farms;}
+function viewportSpace(){
+ const viewport=$('world-viewport'),width=viewport.clientWidth||800,height=viewport.clientHeight||600;
+ const top=width<=850?140:92,bottom=100;
+ return {viewport,width,height,top,bottom,usableWidth:Math.max(80,width-48),usableHeight:Math.max(80,height-top-bottom)};
+}
 function applyZoom(){
  const layout=state.layout;if(!layout)return;
- const viewport=$('world-viewport'),vw=viewport.clientWidth||800,vh=viewport.clientHeight||600;
- if(state.autoZoom)state.zoom=Math.max(vw<=600?1:.5,Math.min(2,(vw-64)/layout.width));
+ const {viewport,width:vw,height:vh,top,bottom,usableWidth,usableHeight}=viewportSpace();
+ if(state.autoZoom){
+   state.zoom=Math.min(2,usableWidth/layout.width,usableHeight/layout.height);
+   viewport.scrollLeft=0;viewport.scrollTop=0;
+ }
  const width=layout.width*state.zoom,height=layout.height*state.zoom;
- const topPadding=vw<=850?140:92,bottomPadding=100;
  $('world-space').style.transform=`scale(${state.zoom})`;
- // Meadow fills the screen even when a small team occupies only one office.
  $('world-space').style.left=Math.max(0,(vw-width)/2)+'px';
- $('world-space').style.top=(topPadding+Math.max(0,(vh-topPadding-bottomPadding-height)/2))+'px';
+ $('world-space').style.top=(top+Math.max(0,(vh-top-bottom-height)/2))+'px';
  $('world-sizer').style.width=Math.max(vw,width)+'px';
- $('world-sizer').style.height=Math.max(vh,topPadding+height+bottomPadding)+'px';
+ $('world-sizer').style.height=Math.max(vh,top+height+bottom)+'px';
  $('zoom-label').textContent=Math.round(state.zoom*100)+'%';
  $('zoom-out').disabled=state.zoom<=.25;$('zoom-in').disabled=state.zoom>=2;
 }
@@ -117,11 +125,12 @@ function updateMotionControl(){
 function render(){
  const all=state.farms,workers=all.flatMap(f=>f.workers),farms=view();
  $('farm-count').textContent=all.length;$('agent-count').textContent=all.reduce((n,f)=>n+Math.max(0,f.workers.length-1),0);$('working-count').textContent=workers.filter(w=>w.state==='working').length;$('done-count').textContent=workers.filter(w=>['idle','done','paused'].includes(w.state)).length;
- $('farm-caption').textContent=state.history?'Recorded teams from the last 24 hours':'One office per manager · desks grow as agents join';
+ $('farm-caption').textContent=state.history?'Recorded teams from the last 24 hours':'Currently running Codex instances only · older work is in Session history';
  $('section-title').textContent=state.history?'The shared homestead · journal':'The shared homestead';
  const focusedKey=document.activeElement?.dataset?.deskKey;
  const world=$('world-space');world.replaceChildren();
- const layout=layoutOffices(farms);state.layout=layout;
+ const space=viewportSpace();
+ const layout=layoutOffices(farms,{viewportWidth:space.usableWidth,viewportHeight:space.usableHeight});state.layout=layout;
  world.style.width=layout.width+'px';world.style.height=layout.height+'px';
  const canvas=el('canvas','world-scene');canvas.width=layout.width;canvas.height=layout.height;canvas.setAttribute('aria-hidden','true');canvas.worldLayout=layout;canvas.worldFarms=farms;world.append(canvas);
  const byId=new Map(farms.map(f=>[f.id,f]));
@@ -147,7 +156,7 @@ function render(){
  scene(canvas,layout,farms,0);applyZoom();updateMotionControl();
  if(focusedKey){const target=[...world.querySelectorAll('button[data-desk-key]')].find(e=>e.dataset.deskKey===focusedKey);if(target)target.focus({preventScroll:true});}
  $('farms').hidden=false;$('empty').hidden=farms.length>0;
- $('empty-text').textContent=state.search||state.filter!=='all'?'No offices match those filters. Try another search or choose All activity.':state.history?'No compatible session logs found in the last 24 hours. Check the Codex log folder used by the local server.':'Start Codex in another terminal on this PC. Each detected manager gets an office here. Try Session history for older teams.';
+ $('empty-text').textContent=state.search||state.filter!=='all'?'No offices match those filters. Try another search or choose All activity.':state.history?'No compatible session logs found in the last 24 hours. Check the Codex log folder used by the local server.':'No running Codex instances found. Start Codex on the connected Linux machine, or open Session history to see recorded teams.';
  $('overview').classList.toggle('active',!state.history);$('history').classList.toggle('active',state.history);$('live').classList.toggle('selected',!state.demo);$('demo').classList.toggle('selected',state.demo);
  details();
 }
@@ -157,6 +166,7 @@ function details(){
  panel.replaceChildren();const close=el('button','close','×');close.setAttribute('aria-label','Close desk details');close.onclick=()=>{state.selected=null;state.selectedWorker=null;render();};
  const selected=farm.workers.find(w=>w.id===state.selectedWorker);
  panel.append(close,el('span','eyebrow',selected?'AT THIS DESK':'INSIDE THE OFFICE'),el('h2','',farm.name),el('p','tiny',label(farm)),el('h4','','PROJECT FOLDER'),el('p','',farm.directory));
+ if(!state.history&&!farm.linked&&farm.source!=='demo')panel.append(el('p','tiny','This process is running, but its session log has not been linked. Session history contains recorded tasks; older logs are not counted as live offices.'));
  if(selected){const back=el('button','office-back','← See the whole team');back.onclick=()=>select(farm.id);panel.append(back);}
  const team=selected?[selected]:farm.workers;
  team.forEach(w=>{const i=farm.workers.indexOf(w),block=el('div','detail-worker');block.append(avatar(i),el('h4','',(i===0?'MANAGER':w.name.toUpperCase())+' · '+w.state.toUpperCase()),el('p','',w.task));if(w.goal&&w.goal!==w.task)block.append(el('p','tiny','ORIGINAL REQUEST'),el('p','',w.goal));const ids=el('details');ids.append(el('summary','','Session identifier'),el('code','',w.id));block.append(ids);panel.append(block);});
@@ -224,9 +234,9 @@ $('history').onclick=()=>{state.history=true;state.selected=null;state.selectedW
 $('search').oninput=e=>{state.search=e.target.value;render();};$('filter').onchange=e=>{state.filter=e.target.value;render();};
 $('zoom-in').onclick=()=>{state.autoZoom=false;state.zoom=Math.min(2,state.zoom+.25);applyZoom();};
 $('zoom-out').onclick=()=>{state.autoZoom=false;state.zoom=Math.max(.25,state.zoom-.25);applyZoom();};
-$('zoom-fit').onclick=()=>{if(state.layout){state.autoZoom=false;const viewport=$('world-viewport');state.zoom=Math.max(.25,Math.min(2,(viewport.clientWidth-18)/state.layout.width,((viewport.clientHeight||600)-(viewport.clientWidth<=850?240:192))/state.layout.height));applyZoom();}};
+$('zoom-fit').onclick=()=>{state.autoZoom=true;render();};
 $('motion-toggle').onclick=()=>{if(!reduced){state.motion=!state.motion;updateMotionControl();const canvas=document.querySelector('canvas.world-scene');if(canvas)scene(canvas,canvas.worldLayout,canvas.worldFarms,0);}};
-if(typeof addEventListener==='function')addEventListener('resize',()=>applyZoom());
+if(typeof addEventListener==='function')addEventListener('resize',()=>{if(state.autoZoom)render();else applyZoom();});
 if(typeof motionPreference.addEventListener==='function')motionPreference.addEventListener('change',event=>{reduced=event.matches;updateMotionControl();const canvas=document.querySelector('canvas.world-scene');if(canvas)scene(canvas,canvas.worldLayout,canvas.worldFarms,0);});
 let lastFrame=0;function animate(t){if(!document.hidden&&t-lastFrame>75){const canvas=document.querySelector('canvas.world-scene');if(canvas&&state.motion&&!reduced)scene(canvas,canvas.worldLayout,canvas.worldFarms,t);lastFrame=t;}requestAnimationFrame(animate);}
 requestAnimationFrame(animate);refresh();setInterval(refresh,2000);

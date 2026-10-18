@@ -64,15 +64,16 @@ class WebTests(unittest.TestCase):
         root = Session(Path('/root.jsonl'), touched=100000)
         root.consume({'type': 'session_meta', 'payload': {'id': 'root', 'cwd': '/projects/orchard'}})
         state.monitor.sessions[root.path] = root
-        process = {'pid': 10, 'tty': '/dev/pts/1', 'cwd': root.cwd, 'logs': {str(root.path)}}
+        process = {'pid': 10, 'start_ticks': 100, 'tty': '/dev/pts/1', 'cwd': root.cwd, 'logs': {str(root.path)}}
         with patch.object(state.monitor, 'scan', return_value=[process]), patch('farm.time.time', return_value=100000):
             linked = state.snapshot()['farms'][0]
             process['logs'] = set()
-            unlinked = next(farm for farm in state.snapshot()['farms'] if farm['source'] == 'session')
+            unlinked = state.snapshot()['farms'][0]
         self.assertEqual(linked['id'], 'session:root')
         self.assertEqual(unlinked['id'], linked['id'])
         self.assertTrue(linked['linked'])
-        self.assertFalse(unlinked['linked'])
+        self.assertTrue(unlinked['linked'])
+        self.assertEqual(unlinked['source'], 'process')
 
     def test_multiple_processes_sharing_session_log_have_one_office(self):
         state = FarmState(Path('/unused'))
@@ -92,7 +93,7 @@ class WebTests(unittest.TestCase):
             root.consume({'type': 'session_meta', 'payload': {'id': sid, 'cwd': '/projects/orchard'}})
             state.monitor.sessions[root.path] = root
         with patch.object(state.monitor, 'scan', return_value=[]), patch('farm.time.time', return_value=100000):
-            farms = state.snapshot()['farms']
+            farms = state.snapshot(history=True)['farms']
         self.assertEqual({farm['id'] for farm in farms}, {'session:first', 'session:second'})
         self.assertEqual([farm['directory'] for farm in farms], ['/projects/orchard', '/projects/orchard'])
 

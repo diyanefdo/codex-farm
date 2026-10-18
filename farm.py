@@ -153,10 +153,13 @@ def processes(proc=Path('/proc'), diagnostics=None):
             continue
         pid = int(entry.name)
         stats['scanned'] += 1
+        start_ticks = None
         try:
             # stat's comm field may contain spaces or parentheses.
             fields = (entry / 'stat').read_text().rsplit(')', 1)[1].split()
             parents[pid] = int(fields[1])
+            # Field 22 identifies this process lifetime even if Linux reuses its PID.
+            start_ticks = int(fields[19])
         except (OSError, ValueError, IndexError):
             pass
         try:
@@ -201,6 +204,8 @@ def processes(proc=Path('/proc'), diagnostics=None):
         except OSError:
             pass
         result[pid] = {'pid': pid, 'cwd': cwd, 'tty': tty, 'logs': logs}
+        if start_ticks is not None:
+            result[pid]['start_ticks'] = start_ticks
     # npm's Node launcher and its native child represent one instance.
     for pid in list(result):
         if pid in wrappers:

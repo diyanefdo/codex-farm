@@ -12,7 +12,7 @@ import threading
 import time
 from urllib.parse import parse_qs, urlsplit
 
-from farm import Monitor, demo_cards
+from farm import Monitor, Worker, demo_cards
 
 ASSETS = Path(__file__).parent / 'web'
 
@@ -34,6 +34,39 @@ class FarmState:
         self.lock = threading.Lock()
         self.cached = None
         self.last_scan = 0
+        self.process_sessions = {}
+
+    def live_cards(self, processes):
+        """Only current processes establish live offices; logs provide details."""
+        by_id = {s.id: s for s in self.monitor.sessions.values() if s.id}
+        aliases = self.monitor.identities()
+        parents = self.monitor.parent_links()
+        # Start time prevents a recycled PID from inheriting another session.
+        current = {(p['pid'], p['start_ticks']) for p in processes if p.get('start_ticks') is not None}
+        self.process_sessions = {key: sid for key, sid in self.process_sessions.items() if key in current}
+        cards = []
+        for process in processes:
+            key = (process['pid'], process.get('start_ticks'))
+            exact = [s for s in by_id.values() if str(s.path) in process['logs']]
+            session = max(exact, key=lambda s: s.touched) if exact else by_id.get(self.process_sessions.get(key))
+            if session and process.get('start_ticks') is not None:
+                self.process_sessions[key] = session.id
+            # A spawned process belongs to its manager's office, including forks
+            # where thread IDs differ from metadata session IDs.
+            seen = set()
+            while session and session.id in parents and session.id not in seen:
+                seen.add(session.id)
+                parent = by_id.get(aliases.get(parents[session.id], parents[session.id]))
+                if not parent:
+                    break
+                session = parent
+            if session:
+                workers = self.monitor.workers_for(session)
+            else:
+                workers = [Worker(str(process['pid']), 'Manager', 'Process running; open Session history for recorded tasks. Session is not linked yet.', 'online')]
+            title = f"PID {process['pid']}  {process['tty'].replace('/dev/', '')}"
+            cards.append((title, process['cwd'], workers))
+        return cards
 
     def snapshot(self, demo=False, history=False):
         with self.lock:
@@ -45,7 +78,8 @@ class FarmState:
                 if self.cached is None or time.monotonic() - self.last_scan >= 2:
                     self.cached = self.monitor.scan()
                     self.last_scan = time.monotonic()
-                cards = self.monitor.cards(self.cached, sessions_only=history)
+                live = self.live_cards(self.cached)
+                cards = self.monitor.cards(self.cached, sessions_only=True) if history else live
                 sessions = {s.worker.id: s for s in self.monitor.sessions.values() if s.worker.id}
                 scanned = time.time()
             farms = []
@@ -66,7 +100,7 @@ class FarmState:
                     farm_id = 'pid:' + workers[0].id
                 serialized = [asdict(w) for w in workers]
                 if not root and not is_log and not demo:
-                    serialized[0]['task'] = 'Running locally. Open a recorded session to see task activity.'
+                    serialized[0]['task'] = 'Process running. Task details are not linked yet; open Session history for recorded work.'
                 farms.append({
                     'id': farm_id, 'title': title, 'directory': cwd,
                     'name': Path(cwd).name or 'Homestead',
@@ -75,7 +109,7 @@ class FarmState:
                     'observed_at': root.touched if root else None,
                     'workers': serialized,
                 })
-            return {'mode': 'demo' if demo else 'live', 'updated_at': scanned, 'farms': farms}
+            return {'mode': 'demo' if demo else 'live', 'view': 'history' if history else 'live', 'updated_at': scanned, 'farms': farms}
 
 
 class FarmHandler(BaseHTTPRequestHandler):

@@ -49,7 +49,7 @@ function checkBounds(layout) {
 }
 
 test('an empty world has deterministic usable bounds', () => {
-  assert.deepEqual(layoutOffices([]), {width: 760, height: 304, offices: []});
+  assert.deepEqual(layoutOffices([]), {width: 760, height: 260, offices: []});
 });
 
 test('offices with zero workers still reserve room and do not invent a manager', () => {
@@ -70,17 +70,19 @@ test('a manager is centered below the office heading', () => {
   checkBounds(layout);
 });
 
-test('subagents receive individual desks in rows of three below the manager', () => {
+test('subagents share a compact first row with the manager and receive individual desks', () => {
   const layout = layoutOffices([farm('team', 8)]);
   const desks = layout.offices[0].desks;
   assert.equal(desks.length, 8);
   assert.deepEqual(desks.map(desk => desk.index), [0, 1, 2, 3, 4, 5, 6, 7]);
   assert.equal(desks.filter(desk => desk.manager).length, 1);
-  assert.equal(desks[1].y, desks[3].y);
-  assert.ok(desks[1].x < desks[2].x && desks[2].x < desks[3].x);
-  assert.equal(desks[4].x, desks[1].x);
-  assert.ok(desks[4].y > desks[3].y);
-  assert.ok(desks[1].y >= desks[0].y + desks[0].height);
+  assert.equal(desks[1].y, desks[0].y);
+  assert.equal(desks[2].y, desks[0].y);
+  assert.ok(desks[1].x < desks[0].x && desks[0].x < desks[2].x);
+  assert.equal(desks[3].x, desks[1].x);
+  assert.equal(desks[4].x, desks[0].x);
+  assert.equal(desks[5].x, desks[2].x);
+  assert.ok(desks[3].y >= desks[0].y + desks[0].height);
   checkBounds(layout);
 });
 
@@ -88,9 +90,9 @@ test('every desk reserves room for a name and three task preview lines', () => {
   const layout = layoutOffices([farm('previews', 8)]);
   const office = layout.offices[0];
   const desks = office.desks;
-  assert.equal(desks[0].y, office.y + 52);
-  assert.equal(desks[1].y, office.y + 188);
-  assert.equal(desks[4].y - desks[1].y, 128);
+  assert.equal(desks[0].y, office.y + 44);
+  assert.equal(desks[1].y, office.y + 44);
+  assert.equal(desks[4].y - desks[1].y, 116);
   for (const desk of desks) {
     assert.equal(desk.width, 80);
     assert.equal(desk.height, 104);
@@ -99,6 +101,52 @@ test('every desk reserves room for a name and three task preview lines', () => {
   }
   assert.equal(office.y + office.height - (desks[7].y + desks[7].height), 32);
   checkBounds(layout);
+});
+
+test('compact offices use a single row for up to three workers', () => {
+  for (let count = 0; count <= 3; count++) {
+    const layout = layoutOffices([farm('compact', count)]);
+    assert.equal(layout.offices[0].height, 180);
+    checkBounds(layout);
+  }
+});
+
+test('viewport dimensions choose readable grids for four, six and twelve offices', () => {
+  for (const [count, expectedColumns] of [[4, 2], [6, 3], [12, 4]]) {
+    const farms = Array.from({length: count}, (_, index) => farm('team-' + index, 6));
+    const layout = layoutOffices(farms, {viewportWidth: 1600, viewportHeight: 900});
+    assert.equal(new Set(layout.offices.map(office => office.x)).size, expectedColumns);
+    assert.equal(layout.width, 80 + expectedColumns * 320 + (expectedColumns - 1) * 40);
+    assert.deepEqual(layout.offices.flatMap(office => office.desks.map(desk => desk.workerId)),
+      farms.flatMap(item => item.workers.map(worker => worker.id)));
+    const scale = Math.min(1600 / layout.width, 900 / layout.height);
+    for (const office of layout.offices) {
+      assert.ok((office.x + office.width) * scale <= 1600);
+      assert.ok((office.y + office.height) * scale <= 900);
+    }
+    checkBounds(layout);
+  }
+});
+
+test('adaptive grids retain every uneven team and favor fewer columns on a tie', () => {
+  const farms = [farm('large', 25), farm('one', 1), farm('medium', 7), farm('two', 2)];
+  const layout = layoutOffices(farms, {viewportWidth: 1920, viewportHeight: 1080});
+  assert.deepEqual(layout.offices.map(office => office.desks.length), [25, 1, 7, 2]);
+  checkBounds(layout);
+  const solo = layoutOffices([farm('solo', 1)], {viewportWidth: 1000, viewportHeight: 800});
+  assert.equal(solo.width, 400);
+  const tied = layoutOffices(Array.from({length: 6}, (_, index) => farm('solo-' + index, 1)),
+    {viewportWidth: 1440, viewportHeight: 900});
+  assert.equal(new Set(tied.offices.map(office => office.x)).size, 2);
+});
+
+test('absent or unusable viewport dimensions preserve the default two columns', () => {
+  const farms = [farm('first', 4), farm('second', 2), farm('third', 1)];
+  const expected = layoutOffices(farms);
+  for (const options of [{}, {viewportWidth: 900}, {viewportWidth: 0, viewportHeight: 800},
+    {viewportWidth: 900, viewportHeight: Infinity}, {viewportWidth: NaN, viewportHeight: 800}]) {
+    assert.deepEqual(layoutOffices(farms, options), expected);
+  }
 });
 
 test('uneven teams share two columns while the next row clears both offices', () => {

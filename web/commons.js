@@ -13,18 +13,8 @@
     for (const area of areas) {
       if (!['break', 'lunch', 'coffee'].includes(area.type)) continue;
       const {x, y, width, height} = area;
-      const colors = area.type === 'break'
-        ? {wall: '#8671b0', floor: '#eee0f4', plank: '#d9c8e6'}
-        : area.type === 'lunch'
-          ? {wall: '#c0824d', floor: '#fae8bc', plank: '#e5cc98'}
-          : {wall: '#4c9891', floor: '#d8eee2', plank: '#bad8ca'};
-      rect(ctx, x, y + 32, width, height - 32, colors.wall);
-      rect(ctx, x + 3, y + 35, width - 6, height - 38, colors.floor);
-      for (let line = y + 46; line < y + height - 3; line += 12) {
-        rect(ctx, x + 3, line, width - 6, 1, colors.plank);
-      }
-      // Each room has a compact, 180 x 100 pixel furniture arrangement. Extra
-      // space surrounds it rather than stretching the people or their pixels.
+      // Furniture sits directly in the shared meadow. Layout bounds reserve
+      // room for the activity, without painting a surrounding room or panel.
       const ox = x + (width - 180) / 2;
       const oy = y + 32 + (height - 132) / 2;
       const r = (px, py, w, h, color) => rect(ctx, ox + px, oy + py, w, h, color);
@@ -49,9 +39,9 @@
       }
 
       if (area.type === 'break') {
-        // Lavender lounge, with a soft rug and a small wall library.
-        r(19, 47, 141, 44, '#b8b2dc');
-        r(23, 51, 133, 36, '#dbd3ec');
+        // Open lounge, with a soft rug and a freestanding little library.
+        r(37, 47, 105, 44, '#b8b2dc');r(25, 53, 129, 32, '#b8b2dc');r(19, 61, 141, 16, '#b8b2dc');
+        r(39, 51, 101, 36, '#dbd3ec');r(29, 57, 121, 24, '#dbd3ec');
         r(64, 5, 57, 19, '#907151');
         for (let book = 0; book < 8; book++) {
           r(68 + book * 6, 8 + book % 3, 4, 12 - book % 3,

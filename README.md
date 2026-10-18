@@ -1,4 +1,34 @@
-# Codex Farm
+# Codex Farm — Local Web App
+
+This `web-app` branch adds a local browser dashboard on top of the `qgenie` branch. It preserves its process discovery, session activity, and agent-grouping logic. `main` and `qgenie` remain separate terminal versions.
+
+## Start the web app
+
+Requires Linux and Python 3.10+; no pip packages, npm build, or cloud accounts needed.
+
+```bash
+git fetch origin
+git switch web-app
+python3 web_server.py
+```
+
+Open **http://127.0.0.1:8765** in a browser on that PC. Keep the server running and start Codex in another terminal as the same Linux user. Press Ctrl+C to stop the server.
+
+```bash
+# Optional: choose the log folder or another local port.
+python3 web_server.py --codex-home ~/.codex --port 8766
+```
+
+The app refreshes every two seconds. It has original pixel-art cottages, orchards, crops, a pond, an outdoor manager desk, and animated farmers. Each worker represents an actual recorded agent; no agents are created by the dashboard. Large teams show up to eleven characters in the scene and every member in the task list. Click a farm to inspect full tasks, original requests, and session IDs. Search, activity filters, and session history are available in the browser. Reduced-motion preferences disable sprite animation.
+
+**Explore demo** displays explicitly labeled fictional data. Live mode never falls back to demo data. Recent unlinked LOG cards show recorded events from the last 15 minutes; **Session history** shows the last 24 hours. A recorded session state is not proof an agent is still running. Process cards remain separate when PID attribution cannot be proven. QGenie discovery and the `spawn` / `spawn_agent` grouping adapters are included.
+
+The Python backend reads `/proc` and the configured local session logs. The browser calls its same-origin `/api/status` endpoint; a standalone hosted page cannot read your PC's processes. No remote fonts, analytics, assets, or services are required. The server binds only to `127.0.0.1`, rejects foreign hosts/origins, has no execution or write API, and does not send CORS permissions. Task text may contain private project information, so keep it local. To monitor a remote machine, use an SSH local tunnel rather than exposing the service publicly.
+
+Validation: the Python suite includes API routing, demo isolation, origin rejection, no-file-traversal checks, and session/agent serialization. Browser visual QA is not part of the automated suite.
+
+The original terminal version and its commands are documented below.
+
 
 A small, read-only Linux terminal dashboard for Codex CLI sessions. Original ASCII farm scenery, warm terminal colors, a desk for each manager, and animated farmhands for agents and nested subagents. Inspired by cozy farming games; no game assets are used.
 

@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Codex Farm · Your little world of work</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body>
+<aside class="rail"><a class="brand" href="/" aria-label="Codex Farm home"><span class="brand-icon">✿</span><span>codex<br><b>farm.</b></span></a><div class="rail-label">YOUR HOMESTEAD</div><button class="nav active" id="overview">▦ <span>The farm</span></button><button class="nav" id="history">◷ <span>Session history</span></button><div class="rail-bottom"><span class="sprout">♧</span><p>A little place<br>for big ideas.</p><small>LOCAL · READ ONLY</small></div></aside>
+<main>
+<header><div class="breadcrumb">HOMESTEAD <span>/</span> OVERVIEW</div><div class="connection"><i id="connection-dot"></i><span id="connection">Connecting to your PC…</span></div></header>
+<section class="intro"><div><p class="eyebrow">A GOOD DAY TO GROW SOMETHING</p><h1>Your work, in bloom<span>.</span></h1><p class="subtitle">A home for your Codex sessions and the little teams bringing them to life.</p></div><div class="mode-switch" role="group" aria-label="Data source"><button class="selected" id="live">Live farm</button><button id="demo">Explore demo</button></div></section>
+<div id="notice" class="notice" role="status" hidden></div>
+<section class="stats" aria-label="Farm overview"><div><span class="stat-icon amber">⌂</span><div><b id="farm-count">—</b><span>Homesteads</span></div></div><div><span class="stat-icon green">♙</span><div><b id="agent-count">—</b><span>Farmhands</span></div></div><div><span class="stat-icon peach">✦</span><div><b id="working-count">—</b><span>Working in the fields</span></div></div><div><span class="stat-icon blue">☀</span><div><b id="done-count">—</b><span>Tasks resting / done</span></div></div></section>
+<section class="toolbar"><div><h2 id="section-title">Around the farm</h2><span id="farm-caption">Listening for local activity</span></div><div class="tools"><label class="search"><span>⌕</span><input id="search" type="search" placeholder="Find a project or task…" aria-label="Search farms"></label><select id="filter" aria-label="Filter farm status"><option value="all">All activity</option><option value="working">Working</option><option value="resting">Resting</option></select></div></section>
+<div class="workspace"><section id="farms" class="farm-grid" aria-label="Codex farms"></section><aside id="inspector" class="inspector" hidden aria-label="Selected farm details"></aside></div>
+<section id="empty" class="empty" hidden><div>♧</div><h2>The fields are quiet.</h2><p id="empty-text">Start Codex in another terminal on this PC. Your recent sessions will sprout here.</p><button id="empty-demo">Take a look at the demo →</button></section>
+<footer><span>✿ Grown locally. No cloud connection required.</span><span id="updated">Waiting for the first harvest…</span></footer>
+</main>
+</body></html>

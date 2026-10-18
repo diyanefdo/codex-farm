@@ -5,6 +5,14 @@
   const OFFICE_WIDTH = 320;
   const OFFICE_GAP = 40;
   const MIN_OFFICE_HEIGHT = 180;
+  const COMMON_AREA_HEIGHT = 132;
+  const COMMON_AREA_GAP = 16;
+  const MIN_COMMON_AREA_WIDTH = 180;
+  const COMMON_AREAS = [
+    {id: 'break', name: 'Break area', type: 'break'},
+    {id: 'lunch', name: 'Lunch area', type: 'lunch'},
+    {id: 'coffee', name: 'Coffee machine', type: 'coffee'}
+  ];
 
   function worldWidth(columns) {
     return PADDING * 2 + OFFICE_WIDTH * columns + OFFICE_GAP * (columns - 1);
@@ -23,15 +31,39 @@
     return height;
   }
 
+  function commonAreas(width, top) {
+    const availableWidth = width - PADDING * 2;
+    const columns = Math.min(COMMON_AREAS.length, Math.max(1,
+      Math.floor((availableWidth + COMMON_AREA_GAP) /
+        (MIN_COMMON_AREA_WIDTH + COMMON_AREA_GAP))));
+    const areaWidth = (availableWidth - COMMON_AREA_GAP * (columns - 1)) / columns;
+    return COMMON_AREAS.map((area, index) => ({
+      ...area,
+      x: PADDING + index % columns * (areaWidth + COMMON_AREA_GAP),
+      y: top + Math.floor(index / columns) * (COMMON_AREA_HEIGHT + COMMON_AREA_GAP),
+      width: areaWidth,
+      height: COMMON_AREA_HEIGHT
+    }));
+  }
+
+  function totalWorldHeight(heights, columns, includeCommons) {
+    const height = worldHeight(heights, columns);
+    if (!includeCommons) return height;
+    const areas = commonAreas(worldWidth(columns), heights.length ? height : PADDING);
+    const lastArea = areas[areas.length - 1];
+    return lastArea.y + lastArea.height + PADDING;
+  }
+
   function fitColumns(heights, options) {
     const {viewportWidth, viewportHeight} = options;
     if (!heights.length || !Number.isFinite(viewportWidth) || viewportWidth <= 0 ||
         !Number.isFinite(viewportHeight) || viewportHeight <= 0) return 2;
     let bestColumns = 1;
     let bestScale = 0;
-    for (let columns = 1; columns <= heights.length; columns++) {
+    const maxColumns = options.includeCommons ? Math.max(2, heights.length) : heights.length;
+    for (let columns = 1; columns <= maxColumns; columns++) {
       const scale = Math.min(viewportWidth / worldWidth(columns),
-        viewportHeight / worldHeight(heights, columns));
+        viewportHeight / totalWorldHeight(heights, columns, options.includeCommons));
       if (scale > bestScale + 1e-10) {
         bestColumns = columns;
         bestScale = scale;
@@ -49,7 +81,9 @@
    * coordinates are absolute world pixels; input objects are never modified.
    * Without viewport dimensions offices use two columns. With usable viewport
    * dimensions, choose the columns giving the largest scale with every office
-   * visible. Ties retain the smaller column count.
+   * visible. Ties retain the smaller column count. With includeCommons, place
+   * shared break, lunch and coffee areas below the offices, including them in
+   * the viewport fit and world bounds.
    */
   function layoutOffices(farms, options = {}) {
     const offices = [];
@@ -85,11 +119,16 @@
       nextRowY += rowHeight + OFFICE_GAP;
     }
 
-    return {
+    const layout = {
       width: worldWidth(columns),
       height: offices.length ? nextRowY : PADDING * 2 + MIN_OFFICE_HEIGHT,
       offices
     };
+    if (options.includeCommons) {
+      layout.commonAreas = commonAreas(layout.width, offices.length ? nextRowY : PADDING);
+      layout.height = totalWorldHeight(heights, columns, true);
+    }
+    return layout;
   }
 
   root.layoutOffices = layoutOffices;

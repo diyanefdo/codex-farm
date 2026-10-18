@@ -209,3 +209,10 @@ button:hover { background-color: #ffe7ad; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; }
 }
+
+/* Shared office scenery is separate from live manager and agent desks. */
+.common-area { position: absolute; pointer-events: none; }
+.common-title { position: absolute; top: 7px; left: 10px; right: 10px; height: 18px; margin: 0; padding: 1px 6px; color: #69527f; font: 600 11px/16px Georgia, serif; background: #f5e8ffdb; border-left: 3px solid #a385be; border-radius: 3px; }
+.common-lunch .common-title { color: #82662b; background: #fff0bddb; border-color: #d7ac56; }
+.common-coffee .common-title { color: #71533e; background: #ffe3c5db; border-color: #bb865d; }
+.common-caption { position: absolute; left: 6px; right: 6px; bottom: 3px; padding: 1px 2px; border-radius: 2px; background: #fff8e5df; color: #6c7059; text-align: center; font-size: 5px; line-height: 7px; letter-spacing: .1px; white-space: nowrap; }

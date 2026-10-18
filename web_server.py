@@ -176,7 +176,7 @@ class FarmHandler(BaseHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError):
                 pass
             return
-        assets = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/layout.js': ('layout.js', 'text/javascript; charset=utf-8'), '/motion.js': ('motion.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8')}
+        assets = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/layout.js': ('layout.js', 'text/javascript; charset=utf-8'), '/motion.js': ('motion.js', 'text/javascript; charset=utf-8'), '/commons.js': ('commons.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8')}
         if url.path not in assets:
             self.respond(404, b'Not found', 'text/plain')
             return

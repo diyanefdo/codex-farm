@@ -261,7 +261,8 @@ test('working managers and agents visibly move while idle characters remain stil
     const drawAt = tick => {
       canvas.context.calls = [];
       vm.runInContext(`scene(document.querySelector('canvas.world-scene'), state.layout, state.farms, ${tick})`, app.context);
-      return JSON.stringify(canvas.context.calls);
+      const officeBottom = vm.runInContext('Math.max(0, ...state.layout.offices.map(o => o.y + o.height))', app.context);
+      return JSON.stringify(canvas.context.calls.filter(call => call[1] < officeBottom));
     };
     assert.notEqual(drawAt(300), drawAt(1300), 'working occupant should change pose');
     farm.workers[workerIndex].state = 'idle';
@@ -270,10 +271,11 @@ test('working managers and agents visibly move while idle characters remain stil
     const idleCanvas = app.world.querySelector('canvas.world-scene');
     idleCanvas.context.calls = [];
     vm.runInContext(`scene(document.querySelector('canvas.world-scene'), state.layout, state.farms, 300)`, app.context);
-    const first = JSON.stringify(idleCanvas.context.calls);
+    const officeBottom = vm.runInContext('Math.max(0, ...state.layout.offices.map(o => o.y + o.height))', app.context);
+    const first = JSON.stringify(idleCanvas.context.calls.filter(call => call[1] < officeBottom));
     idleCanvas.context.calls = [];
     vm.runInContext(`scene(document.querySelector('canvas.world-scene'), state.layout, state.farms, 1300)`, app.context);
-    assert.equal(JSON.stringify(idleCanvas.context.calls), first, 'idle occupants should stay still');
+    assert.equal(JSON.stringify(idleCanvas.context.calls.filter(call => call[1] < officeBottom)), first, 'idle occupants should stay still');
   }
 });
 
@@ -388,4 +390,20 @@ test('Fit restores automatic overview after zooming and continues fitting new te
   assert.ok(geometry.width * geometry.zoom <= 752 + 0.001);
   assert.ok(geometry.height * geometry.zoom <= 360 + 0.001);
   assert.equal(app.world.querySelectorAll('.desk-button').length, 80);
+});
+
+
+test('three shared common areas are scenery and do not change live worker counts', async () => {
+  const app = await application([makeFarm('alpha', 4), makeFarm('beta', 2)]);
+  const areas = app.world.querySelectorAll('.common-area');
+  assert.equal(areas.length, 3);
+  assert.deepEqual(areas.map(a => a.querySelector('.common-title').textContent), ['Break area', 'Lunch area', 'Coffee machine']);
+  assert.ok(areas.every(a => a.getAttribute('aria-label').includes('decorative coworkers')));
+  assert.equal(app.world.querySelectorAll('.office').length, 2);
+  assert.equal(app.world.querySelectorAll('.desk-button').length, 6);
+  assert.equal(app.byId.get('agent-count').textContent, '4');
+  assert.equal(app.byId.get('farm-count').textContent, '2');
+  const geometry = vm.runInContext('({width: state.layout.width, height: state.layout.height, zoom: state.zoom})', app.context);
+  assert.ok(geometry.width * geometry.zoom <= 752 + .001);
+  assert.ok(geometry.height * geometry.zoom <= 360 + .001);
 });

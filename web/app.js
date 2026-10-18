@@ -89,6 +89,7 @@ function scene(canvas, layout, farms, tick){
      }
    }
  }
+ drawCommonAreas(c,layout.commonAreas||[],{rect,person,tick,motion:state.motion&&!reduced});
 }
 function avatar(index){const canvas=el('canvas','avatar');canvas.width=28;canvas.height=32;const c=canvas.getContext('2d');person(c,10,14,palette[index%palette.length],0,index===0);return canvas;}
 function working(f){return f.workers.some(w=>w.state==='working');}
@@ -130,7 +131,7 @@ function render(){
  const focusedKey=document.activeElement?.dataset?.deskKey;
  const world=$('world-space');world.replaceChildren();
  const space=viewportSpace();
- const layout=layoutOffices(farms,{viewportWidth:space.usableWidth,viewportHeight:space.usableHeight});state.layout=layout;
+ const layout=layoutOffices(farms,{viewportWidth:space.usableWidth,viewportHeight:space.usableHeight,includeCommons:true});state.layout=layout;
  world.style.width=layout.width+'px';world.style.height=layout.height+'px';
  const canvas=el('canvas','world-scene');canvas.width=layout.width;canvas.height=layout.height;canvas.setAttribute('aria-hidden','true');canvas.worldLayout=layout;canvas.worldFarms=farms;world.append(canvas);
  const byId=new Map(farms.map(f=>[f.id,f]));
@@ -152,6 +153,13 @@ function render(){
      button.onclick=()=>select(farm.id,worker.id);room.append(button);
    }
    world.append(room);
+ }
+ for(const area of layout.commonAreas||[]){
+   const section=el('section','common-area common-'+area.type);
+   section.style.left=area.x+'px';section.style.top=area.y+'px';section.style.width=area.width+'px';section.style.height=area.height+'px';
+   section.setAttribute('aria-label',area.name+'. Shared office scenery with seated decorative coworkers.');
+   section.append(el('h3','common-title',area.name),el('span','common-caption','Shared space · decorative coworkers'));
+   world.append(section);
  }
  scene(canvas,layout,farms,0);applyZoom();updateMotionControl();
  if(focusedKey){const target=[...world.querySelectorAll('button[data-desk-key]')].find(e=>e.dataset.deskKey===focusedKey);if(target)target.focus({preventScroll:true});}

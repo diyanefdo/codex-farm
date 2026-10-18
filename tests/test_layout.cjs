@@ -46,6 +46,19 @@ function checkBounds(layout) {
         'offices ' + layout.offices[i].farmId + ' and ' + layout.offices[j].farmId);
     }
   }
+  for (const area of layout.commonAreas || []) {
+    assert.ok(area.x >= 0 && area.y >= 0);
+    assert.ok(area.x + area.width <= layout.width + 1e-10);
+    assert.ok(area.y + area.height <= layout.height);
+    for (const office of layout.offices) {
+      assert.equal(overlaps(area, office), false, area.name + ' overlaps ' + office.farmId);
+    }
+  }
+  for (let i = 0; i < (layout.commonAreas || []).length; i++) {
+    for (let j = i + 1; j < layout.commonAreas.length; j++) {
+      assert.equal(overlaps(layout.commonAreas[i], layout.commonAreas[j]), false);
+    }
+  }
 }
 
 test('an empty world has deterministic usable bounds', () => {
@@ -194,6 +207,102 @@ test('names and activity changes keep the same IDs and geometry without changing
   renamed[0].workers.forEach(worker => {worker.name = 'New name'; worker.task = 'Writing tests';});
   assert.deepEqual(layoutOffices(renamed), before);
   assert.deepEqual(layoutOffices(input), before);
+});
+
+test('shared break, lunch and coffee areas fit in worlds with zero, one, four and twelve offices', () => {
+  for (const count of [0, 1, 4, 12]) {
+    const farms = Array.from({length: count}, (_, index) => farm('team-' + index, index % 8));
+    for (const options of [{}, {viewportWidth: 1600, viewportHeight: 900},
+      {viewportWidth: 390, viewportHeight: 844}]) {
+      const layout = layoutOffices(farms, {...options, includeCommons: true});
+      assert.deepEqual(layout.commonAreas.map(area => [area.id, area.name, area.type]), [
+        ['break', 'Break area', 'break'],
+        ['lunch', 'Lunch area', 'lunch'],
+        ['coffee', 'Coffee machine', 'coffee']
+      ]);
+      assert.deepEqual(layout.offices.flatMap(office => office.desks.map(desk => desk.workerId)),
+        farms.flatMap(item => item.workers.map(worker => worker.id)));
+      const officeBottom = Math.max(0, ...layout.offices.map(office => office.y + office.height));
+      for (const area of layout.commonAreas) {
+        assert.equal(area.height, 132);
+        assert.ok(area.width >= 180);
+        assert.ok(area.y >= officeBottom + 40);
+        assert.ok(area.x >= 40);
+        assert.ok(area.x + area.width <= layout.width - 40 + 1e-10);
+        assert.ok(area.y + area.height <= layout.height - 40);
+      }
+      checkBounds(layout);
+    }
+  }
+});
+
+test('commons use three columns in a wide world and stack below a single narrow office', () => {
+  const wide = layoutOffices([farm('first', 1), farm('second', 1)], {includeCommons: true});
+  assert.equal(new Set(wide.commonAreas.map(area => area.y)).size, 1);
+  for (let index = 1; index < wide.commonAreas.length; index++) {
+    const previous = wide.commonAreas[index - 1];
+    assert.ok(Math.abs(wide.commonAreas[index].x - (previous.x + previous.width + 16)) < 1e-10);
+  }
+  const narrow = layoutOffices([farm('solo', 1)], {
+    viewportWidth: 400, viewportHeight: 900, includeCommons: true
+  });
+  assert.equal(narrow.width, 400);
+  assert.equal(new Set(narrow.commonAreas.map(area => area.x)).size, 1);
+  assert.equal(new Set(narrow.commonAreas.map(area => area.y)).size, 3);
+  assert.equal(narrow.commonAreas[1].y - narrow.commonAreas[0].y, 148);
+  checkBounds(wide);
+  checkBounds(narrow);
+});
+
+test('adaptive fit accounts for all common areas when choosing the most readable office grid', () => {
+  const farms = Array.from({length: 4}, (_, index) => farm('team-' + index, 6));
+  const options = {viewportWidth: 1600, viewportHeight: 900, includeCommons: true};
+  const layout = layoutOffices(farms, options);
+  assert.equal(new Set(layout.offices.map(office => office.x)).size, 4);
+  const scale = Math.min(options.viewportWidth / layout.width, options.viewportHeight / layout.height);
+  for (const item of [...layout.offices, ...layout.commonAreas]) {
+    assert.ok((item.x + item.width) * scale <= options.viewportWidth + 1e-10);
+    assert.ok((item.y + item.height) * scale <= options.viewportHeight + 1e-10);
+  }
+  checkBounds(layout);
+});
+
+test('a single office can share a wider desktop world with three commons side by side', () => {
+  const farms = [farm('solo', 1)];
+  const options = {viewportWidth: 1600, viewportHeight: 900, includeCommons: true};
+  const layout = layoutOffices(farms, options);
+  assert.equal(layout.width, 760);
+  assert.equal(layout.offices.length, 1);
+  assert.equal(new Set(layout.commonAreas.map(area => area.y)).size, 1);
+  const wideScale = Math.min(options.viewportWidth / layout.width, options.viewportHeight / layout.height);
+  const narrow = layoutOffices(farms, {...options, viewportWidth: 400, viewportHeight: 900});
+  assert.equal(narrow.width, 400);
+  const narrowScale = Math.min(options.viewportWidth / narrow.width, options.viewportHeight / narrow.height);
+  assert.ok(wideScale > narrowScale);
+  checkBounds(layout);
+});
+
+test('common areas have stable positions independent of names and tasks without mutating input', () => {
+  const farms = [farm('first', 6), farm('second', 2)];
+  const snapshot = JSON.stringify(farms);
+  const options = Object.freeze({includeCommons: true, viewportWidth: 1600, viewportHeight: 900});
+  for (const item of farms) {
+    item.workers.forEach(Object.freeze);
+    Object.freeze(item.workers);
+    Object.freeze(item);
+  }
+  Object.freeze(farms);
+  const before = layoutOffices(farms, options);
+  assert.equal(JSON.stringify(farms), snapshot);
+  const updated = JSON.parse(snapshot);
+  updated.forEach(item => {
+    item.name = 'Renamed';
+    item.workers.forEach(worker => {worker.task = 'New task'; worker.status = 'working';});
+  });
+  assert.deepEqual(layoutOffices(updated, options), before);
+  assert.deepEqual(layoutOffices(farms, options), before);
+  assert.equal(Object.hasOwn(layoutOffices(farms), 'commonAreas'), false);
+  assert.deepEqual(layoutOffices(farms, {includeCommons: false}), layoutOffices(farms));
 });
 
 test('the same layout function works as a plain browser script', () => {

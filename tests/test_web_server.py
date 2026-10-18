@@ -110,6 +110,10 @@ class WebTests(unittest.TestCase):
         self.assertNotIn('Access-Control-Allow-Origin', head)
         self.assertIn(b'id="world-viewport"', body)
         self.assertIn(b'src="/layout.js"', body)
+        self.assertIn(b'src="/motion.js"', body)
+        head, motion = self.request('/motion.js')
+        self.assertIn('200 OK', head)
+        self.assertIn(b'workerMotion', motion)
         for route in ('/../farm.py', '/farm.py', '/api/execute', '/web_server.py'):
             with self.subTest(route=route):
                 head, _ = self.request(route)

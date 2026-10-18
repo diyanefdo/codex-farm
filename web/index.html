@@ -1,20 +1,63 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Codex Farm · Your little world of work</title><link rel="stylesheet" href="/style.css"><script src="/layout.js" defer></script><script src="/app.js" defer></script></head>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#85ad69">
+  <title>Codex Farm · Your little world of work</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/layout.js" defer></script>
+  <script src="/motion.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
 <body>
-<aside class="rail"><a class="brand" href="/" aria-label="Codex Farm home"><span class="brand-icon">✿</span><span>codex<br><b>farm.</b></span></a><div class="rail-label">YOUR HOMESTEAD</div><button class="nav active" id="overview">▦ <span>The farm</span></button><button class="nav" id="history">◷ <span>Session history</span></button><div class="rail-bottom"><span class="sprout">♧</span><p>A little place<br>for big ideas.</p><small>LOCAL · READ ONLY</small></div></aside>
 <main>
-<header><div class="breadcrumb">HOMESTEAD <span>/</span> OVERVIEW</div><div class="connection"><i id="connection-dot"></i><span id="connection">Connecting to your PC…</span></div></header>
-<section class="intro"><div><p class="eyebrow">A GOOD DAY TO GROW SOMETHING</p><h1>One world. Many good ideas<span>.</span></h1><p class="subtitle">A shared homestead, with an office for every manager and a desk for every teammate.</p></div><div class="mode-switch" role="group" aria-label="Data source"><button class="selected" id="live">Live farm</button><button id="demo">Explore demo</button></div></section>
-<div id="notice" class="notice" role="status" hidden></div>
-<section class="stats" aria-label="Farm overview"><div><span class="stat-icon amber">⌂</span><div><b id="farm-count">—</b><span>Manager offices</span></div></div><div><span class="stat-icon green">♙</span><div><b id="agent-count">—</b><span>Agent desks</span></div></div><div><span class="stat-icon peach">✦</span><div><b id="working-count">—</b><span>At work</span></div></div><div><span class="stat-icon blue">☀</span><div><b id="done-count">—</b><span>Tasks resting / done</span></div></div></section>
-<section class="toolbar"><div><h2 id="section-title">The shared homestead</h2><span id="farm-caption">Listening for local activity</span></div><div class="tools"><label class="search"><span>⌕</span><input id="search" type="search" placeholder="Find a project or task…" aria-label="Search farms"></label><select id="filter" aria-label="Filter farm status"><option value="all">All activity</option><option value="working">Working</option><option value="resting">Resting</option></select></div></section>
-<div class="workspace"><section class="world-panel" id="farms" aria-label="Shared manager offices">
-<div class="world-heading"><span>✿ CODEX COMMONS</span><span>Click a desk to see its task</span></div>
-<div class="world-viewport" id="world-viewport" tabindex="0" aria-label="Scrollable office map"><div id="world-sizer"><div id="world-space"></div></div></div>
-<div class="world-controls"><span class="legend"><i></i> Working <i class="resting"></i> Resting / recorded</span><div class="zoom-controls" role="group" aria-label="Map zoom"><button id="zoom-out" aria-label="Zoom out">−</button><output id="zoom-label">100%</output><button id="zoom-in" aria-label="Zoom in">+</button><button id="zoom-fit">Fit</button></div></div>
-</section><aside id="inspector" class="inspector" hidden aria-label="Selected desk details"></aside></div>
-<section id="empty" class="empty" hidden><div>♧</div><h2>The fields are quiet.</h2><p id="empty-text">Start Codex in another terminal on this PC. Your recent sessions will sprout here.</p><button id="empty-demo">Take a look at the demo →</button></section>
-<footer><span>✿ Grown locally. No cloud connection required.</span><span id="updated">Waiting for the first harvest…</span></footer>
+  <h1 class="sr-only">Codex Farm: your shared agent homestead</h1>
+  <section class="world-panel" id="farms" aria-label="Shared farm and manager offices">
+    <div class="world-viewport" id="world-viewport" tabindex="0" role="region" aria-label="Farm map. Scroll to explore, or use the zoom controls. Select a desk for task details.">
+      <div id="world-sizer"><div id="world-space"></div></div>
+    </div>
+  </section>
+
+  <header class="farm-hud" aria-label="Farm controls">
+    <div class="hud-top">
+      <a class="brand" href="/" aria-label="Codex Farm home"><span class="brand-icon" aria-hidden="true">✿</span><span>codex <b>farm.</b><small>A LITTLE WORLD OF WORK</small></span></a>
+      <div class="connection"><i id="connection-dot" aria-hidden="true"></i><span id="connection" role="status">Connecting to your PC…</span></div>
+      <div class="mode-switch" role="group" aria-label="Data source"><button class="selected" id="live">Live farm</button><button id="demo">Demo</button></div>
+    </div>
+    <div class="hud-tools">
+      <nav class="view-switch" aria-label="Farm view"><button class="nav active" id="overview">The farm</button><button class="nav" id="history">Session history</button></nav>
+      <details class="search-tools">
+        <summary>Find &amp; filter <span aria-hidden="true">⌕</span></summary>
+        <div class="search-popover">
+          <label class="search"><span class="sr-only">Search projects, agents or tasks</span><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Project, agent or task…" aria-label="Search farms"></label>
+          <select id="filter" aria-label="Filter farm status"><option value="all">All activity</option><option value="working">Working</option><option value="resting">Resting</option></select>
+          <p id="farm-caption">Listening for local activity</p>
+        </div>
+      </details>
+    </div>
+  </header>
+
+  <h2 id="section-title" class="sr-only">The shared homestead</h2>
+  <div id="notice" class="notice" role="status" hidden></div>
+  <aside id="inspector" class="inspector" hidden aria-label="Selected desk details"></aside>
+  <section id="empty" class="empty" hidden>
+    <div class="empty-sprout" aria-hidden="true">♧</div><p class="eyebrow">ROOM TO GROW</p><h2>The fields are quiet.</h2>
+    <p id="empty-text">Start Codex in another terminal on this PC. Your recent sessions will sprout here.</p>
+    <button id="empty-demo">Explore the demo farm →</button>
+  </section>
+
+  <footer class="bottom-hud">
+    <div class="farm-status hud-panel">
+      <div class="stats" aria-label="Farm overview"><span><b id="farm-count">—</b> offices</span><span><b id="agent-count">—</b> agents</span><span class="working-stat"><i aria-hidden="true"></i><b id="working-count">—</b> working</span><span><b id="done-count">—</b> resting</span></div>
+      <span id="updated">Waiting for the first harvest…</span>
+    </div>
+    <div class="map-tools hud-panel">
+      <span class="legend"><i aria-hidden="true"></i> Working <i class="resting" aria-hidden="true"></i> Resting</span>
+      <button id="motion-toggle" class="motion-toggle" aria-pressed="true">Motion on</button>
+      <div class="zoom-controls" role="group" aria-label="Map zoom"><button id="zoom-out" aria-label="Zoom out">−</button><output id="zoom-label" aria-live="polite">100%</output><button id="zoom-in" aria-label="Zoom in">+</button><button id="zoom-fit">Fit</button></div>
+    </div>
+  </footer>
 </main>
-</body></html>
+</body>
+</html>

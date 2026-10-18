@@ -23,6 +23,7 @@ class Element {
     this.hidden = false;
     this.disabled = false;
     this.clientWidth = 800;
+    this.clientHeight = 600;
     this._text = '';
     this.classList = {
       toggle: (name, force) => {
@@ -33,7 +34,9 @@ class Element {
         return enabled;
       }
     };
-    this.context = {fillRect() {}, imageSmoothingEnabled: true};
+    const context = {calls: [], imageSmoothingEnabled: true};
+    context.fillRect = (...args) => context.calls.push([...args, context.fillStyle]);
+    this.context = context;
   }
   set textContent(value) { this._text = String(value); this.children = []; }
   get textContent() { return this._text + this.children.map(child => child.textContent).join(''); }
@@ -86,7 +89,7 @@ function makeFarm(id, count) {
   };
 }
 
-async function application(farms) {
+async function application(farms, reducedMotion = false) {
   const document = {activeElement: null, hidden: false};
   const body = new Element('body', document);
   const byId = new Map();
@@ -108,7 +111,7 @@ async function application(farms) {
   const frames = [];
   const context = vm.createContext({
     document, URLSearchParams, AbortSignal,
-    matchMedia: () => ({matches: false}),
+    matchMedia: () => ({matches: reducedMotion}),
     requestAnimationFrame: callback => frames.push(callback),
     setInterval: (callback, delay) => intervals.push({callback, delay}),
     fetch: async url => {
@@ -118,8 +121,9 @@ async function application(farms) {
       return {ok: true, json: async () => response};
     }
   });
-  vm.runInContext(fs.readFileSync(path.join(webRoot, 'layout.js'), 'utf8'), context);
-  vm.runInContext(fs.readFileSync(path.join(webRoot, 'app.js'), 'utf8'), context);
+  for (const [, script] of fs.readFileSync(path.join(webRoot, 'index.html'), 'utf8').matchAll(/<script src="\/([\w.-]+)"/g)) {
+    vm.runInContext(fs.readFileSync(path.join(webRoot, script), 'utf8'), context);
+  }
   await new Promise(setImmediate);
   assert.equal(byId.get('connection-dot').className, 'good');
   return {
@@ -228,8 +232,56 @@ test('empty live activity has no offices or desks and explains how to populate t
   assert.equal(app.world.querySelectorAll('canvas.world-scene').length, 1);
   assert.equal(app.world.querySelectorAll('.office').length, 0);
   assert.equal(app.world.querySelectorAll('.desk-button').length, 0);
-  assert.equal(app.byId.get('farms').hidden, true);
+  assert.equal(app.byId.get('farms').hidden, false); // Meadow remains fullscreen even when empty.
   assert.equal(app.byId.get('empty').hidden, false);
   assert.match(app.byId.get('empty-text').textContent, /Start Codex/);
   assert.equal(app.byId.get('inspector').hidden, true);
+});
+
+
+test('working managers and agents visibly move while idle characters remain still', async () => {
+  for (const workerIndex of [0, 1]) {
+    const farm = makeFarm('motion', 2);
+    farm.workers.forEach(w => { w.state = 'idle'; });
+    farm.workers[workerIndex].state = 'working';
+    const app = await application([farm]);
+    const canvas = app.world.querySelector('canvas.world-scene');
+    const drawAt = tick => {
+      canvas.context.calls = [];
+      vm.runInContext(`scene(document.querySelector('canvas.world-scene'), state.layout, state.farms, ${tick})`, app.context);
+      return JSON.stringify(canvas.context.calls);
+    };
+    assert.notEqual(drawAt(300), drawAt(1300), 'working occupant should change pose');
+    farm.workers[workerIndex].state = 'idle';
+    await app.poll([farm]);
+    // Poll replaced the canvas; compare its actual draw commands without a browser.
+    const idleCanvas = app.world.querySelector('canvas.world-scene');
+    idleCanvas.context.calls = [];
+    vm.runInContext(`scene(document.querySelector('canvas.world-scene'), state.layout, state.farms, 300)`, app.context);
+    const first = JSON.stringify(idleCanvas.context.calls);
+    idleCanvas.context.calls = [];
+    vm.runInContext(`scene(document.querySelector('canvas.world-scene'), state.layout, state.farms, 1300)`, app.context);
+    assert.equal(JSON.stringify(idleCanvas.context.calls), first, 'idle occupants should stay still');
+  }
+});
+
+test('motion toggle and reduced-motion preference stop working-character movement', async () => {
+  const farm = makeFarm('motion', 2);
+  farm.workers[0].state = 'working';
+  const app = await application([farm]);
+  const toggle = app.byId.get('motion-toggle');
+  assert.equal(toggle.getAttribute('aria-pressed'), 'true');
+  toggle.onclick();
+  assert.equal(toggle.getAttribute('aria-pressed'), 'false');
+  assert.equal(toggle.textContent, 'Motion off');
+  const canvas = app.world.querySelector('canvas.world-scene');
+  canvas.context.calls = [];
+  vm.runInContext(`scene(document.querySelector('canvas.world-scene'), state.layout, state.farms, 300)`, app.context);
+  const first = JSON.stringify(canvas.context.calls);
+  canvas.context.calls = [];
+  vm.runInContext(`scene(document.querySelector('canvas.world-scene'), state.layout, state.farms, 2300)`, app.context);
+  assert.equal(JSON.stringify(canvas.context.calls), first);
+  const quiet = await application([farm], true);
+  assert.equal(quiet.byId.get('motion-toggle').disabled, true);
+  assert.equal(quiet.byId.get('motion-toggle').getAttribute('aria-pressed'), 'false');
 });

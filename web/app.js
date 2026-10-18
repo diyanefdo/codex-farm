@@ -1,16 +1,18 @@
 'use strict';
 const $ = id => document.getElementById(id);
-const state = {demo:false, history:false, farms:[], selected:null, selectedWorker:null, zoom:1, order:[], deskOrder:new Map(), layout:null, filter:'all', search:'', pending:false, signature:''};
+const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
+let reduced = motionPreference.matches;
+const state = {demo:false, history:false, farms:[], selected:null, selectedWorker:null, zoom:1, autoZoom:true, motion:!reduced, order:[], deskOrder:new Map(), layout:null, filter:'all', search:'', pending:false, signature:''};
 const palette = ['#627f9f','#b66d53','#8d7ba0','#bf9d56','#6b9474','#c58a98'];
-const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 function el(tag, cls, text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;}
 function rect(c,x,y,w,h,color){c.fillStyle=color;c.fillRect(Math.round(x),Math.round(y),w,h);}
-function person(c,x,y,color,frame=0,manager=false){
-  const step=frame%2;
-  rect(c,x-4,y+13,12,3,'#5d793c55');
+function person(c,x,y,color,frame=0,manager=false,pose=null){
+  const step=pose?pose.step:frame%2,left=pose?pose.armLeft:0,right=pose?pose.armRight:0;
+  rect(c,x-5,y+13,14,3,'#5d793c55');
   rect(c,x-1,y+7,3,7+step,'#4e4a3d');rect(c,x+4,y+7,3,8-step,'#4e4a3d');
-  rect(c,x-3,y,12,9,color);rect(c,x-5,y+1,3,6,'#e8b684');rect(c,x+9,y+1,3,6,'#e8b684');
-  rect(c,x-1,y-7,8,8,'#efc08b');rect(c,x-2,y-9,10,4,'#71523e');rect(c,x+5,y-4,1,2,'#473f37');
+  rect(c,x-3,y,12,9,color);
+  rect(c,x-5,y+1+left,3,6,'#e8b684');rect(c,x+9,y+1+right,3,6,'#e8b684');
+  rect(c,x-1,y-7,8,8,'#efc08b');rect(c,x-2,y-9,10,4,'#71523e');rect(c,x+(pose&&pose.facing===-1?0:5),y-4,1,2,'#473f37');
   rect(c,x-4,y-9,14,3,manager?'#b37343':'#d5b877');rect(c,x-1,y-13,8,5,manager?'#ae6437':'#e0c583');
 }
 function tree(c,x,y,variant=0){rect(c,x-3,y,7,24,'#83683f');rect(c,x-14,y-10,30,15,'#508051');rect(c,x-20,y-24,41,20,'#5c8d52');rect(c,x-14,y-35,28,17,'#76a45e');rect(c,x-7,y-41,15,13,'#8eb86d');rect(c,x-17,y-19,8,7,'#86ac61');rect(c,x+8,y-7,10,7,'#3f714a');if(variant){rect(c,x+10,y-22,3,4,'#d7a260');rect(c,x-7,y-28,4,4,'#dca55b');}}
@@ -52,12 +54,25 @@ function scene(canvas, layout, farms, tick){
      const worker=farm.workers[desk.index],dx=desk.x,dy=desk.y;
      rect(c,dx+3,dy+5,desk.width-6,desk.height-8,desk.manager?'#b8bd87':'#c4c59b');
      rect(c,dx+5,dy+7,desk.width-10,desk.height-12,desk.manager?'#ced09b':'#d5d3ad');
-     const frame=worker.state==='working'?Math.floor(tick/550):0;
-     person(c,dx+36,dy+24,palette[desk.index%palette.length],frame,desk.manager);
-     // Chair, broad desktop, paperwork, and a little monitor.
-     rect(c,dx+28,dy+33,19,10,'#876d4b');rect(c,dx+13,dy+38,54,12,'#99764e');rect(c,dx+13,dy+36,54,10,'#c09860');
-     rect(c,dx+17,dy+38,11,6,'#f6e6bb');rect(c,dx+49,dy+33,12,9,'#65766a');rect(c,dx+51,dy+35,8,5,worker.state==='working'?'#b9d595':'#9cafa1');rect(c,dx+54,dy+42,3,3,'#65766a');
-     if(worker.state==='working'){rect(c,dx+44,dy+2,10,8,'#fff7d8');rect(c,dx+46,dy+10,2,2,'#fff7d8');rect(c,dx+47,dy+4,2+(frame%2)*2,3,'#8aa45d');}
+     const moving=state.motion&&!reduced;
+     const pose=workerMotion(worker,tick,desk.index+layout.offices.indexOf(office)*3,moving);
+     const pacing=pose.activity==='pacing',px=dx+36+pose.x,py=dy+(pacing?38:24)+pose.y;
+     rect(c,dx+28,dy+33,19,10,'#876d4b');
+     if(!pacing)person(c,px,py,palette[desk.index%palette.length],pose.step,desk.manager,pose);
+     // Work surfaces stay fixed while the person types, stretches or paces.
+     rect(c,dx+13,dy+38,54,12,'#99764e');rect(c,dx+13,dy+36,54,10,'#c09860');
+     rect(c,dx+17,dy+38,11,6,'#f6e6bb');rect(c,dx+49,dy+33,12,9,'#65766a');
+     rect(c,dx+51,dy+35,8,5,worker.state==='working'?'#b9d595':'#9cafa1');rect(c,dx+54,dy+42,3,3,'#65766a');
+     if(pacing)person(c,px,py,palette[desk.index%palette.length],pose.step,desk.manager,pose);
+     if(worker.state==='working'){
+       if(pose.activity==='typing'){
+         rect(c,px-4,dy+37+pose.armLeft,3,3,'#efc08b');rect(c,px+9,dy+37+pose.armRight,3,3,'#efc08b');
+         rect(c,dx+52,dy+36,4,1,'#e1efb7');
+       }
+       const bob=moving?pose.y:0;
+       rect(c,dx+44,dy+1+bob,10,8,'#fff7d8');rect(c,dx+46,dy+9+bob,2,2,'#fff7d8');
+       rect(c,dx+47,dy+3+bob,moving?2+pose.step*2:3,3,'#8aa45d');
+     }
    }
  }
 }
@@ -67,11 +82,25 @@ function label(f){return f.source==='demo'?'FICTIONAL DEMO':f.source==='session'
 function view(){let farms=state.farms.filter(f=>state.filter==='all'||(state.filter==='working'?working(f):!working(f)));const q=state.search.toLowerCase();if(q)farms=farms.filter(f=>[f.name,f.directory,...f.workers.map(w=>w.name+' '+w.task+' '+w.goal)].join(' ').toLowerCase().includes(q));return farms;}
 function applyZoom(){
  const layout=state.layout;if(!layout)return;
+ const viewport=$('world-viewport'),vw=viewport.clientWidth||800,vh=viewport.clientHeight||600;
+ if(state.autoZoom)state.zoom=Math.max(.5,Math.min(2,(vw-64)/layout.width));
+ const width=layout.width*state.zoom,height=layout.height*state.zoom;
+ const topPadding=vw<=850?140:92,bottomPadding=100;
  $('world-space').style.transform=`scale(${state.zoom})`;
- $('world-sizer').style.width=layout.width*state.zoom+'px';
- $('world-sizer').style.height=layout.height*state.zoom+'px';
+ // Meadow fills the screen even when a small team occupies only one office.
+ $('world-space').style.left=Math.max(0,(vw-width)/2)+'px';
+ $('world-space').style.top=(topPadding+Math.max(0,(vh-topPadding-bottomPadding-height)/2))+'px';
+ $('world-sizer').style.width=Math.max(vw,width)+'px';
+ $('world-sizer').style.height=Math.max(vh,topPadding+height+bottomPadding)+'px';
  $('zoom-label').textContent=Math.round(state.zoom*100)+'%';
  $('zoom-out').disabled=state.zoom<=.25;$('zoom-in').disabled=state.zoom>=2;
+}
+function updateMotionControl(){
+ const toggle=$('motion-toggle');
+ toggle.textContent=reduced?'Reduced motion':state.motion?'Motion on':'Motion off';
+ toggle.setAttribute('aria-pressed',String(state.motion&&!reduced));
+ toggle.disabled=reduced;
+ toggle.title=reduced?'Your system preference disables animation':'Toggle working-character movement';
 }
 function render(){
  const all=state.farms,workers=all.flatMap(f=>f.workers),farms=view();
@@ -100,9 +129,9 @@ function render(){
    }
    world.append(room);
  }
- scene(canvas,layout,farms,0);applyZoom();
+ scene(canvas,layout,farms,0);applyZoom();updateMotionControl();
  if(focusedKey){const target=[...world.querySelectorAll('button[data-desk-key]')].find(e=>e.dataset.deskKey===focusedKey);if(target)target.focus({preventScroll:true});}
- $('farms').hidden=farms.length===0;$('empty').hidden=farms.length>0;
+ $('farms').hidden=false;$('empty').hidden=farms.length>0;
  $('empty-text').textContent=state.search||state.filter!=='all'?'No offices match those filters. Try another search or choose All activity.':state.history?'No compatible session logs found in the last 24 hours. Check the Codex log folder used by the local server.':'Start Codex in another terminal on this PC. Each detected manager gets an office here. Try Session history for older teams.';
  $('overview').classList.toggle('active',!state.history);$('history').classList.toggle('active',state.history);$('live').classList.toggle('selected',!state.demo);$('demo').classList.toggle('selected',state.demo);
  details();
@@ -153,8 +182,11 @@ function mode(demo){state.demo=demo;state.selected=null;state.selectedWorker=nul
 $('live').onclick=()=>mode(false);$('demo').onclick=()=>mode(true);$('empty-demo').onclick=()=>mode(true);
 $('history').onclick=()=>{state.history=true;state.selected=null;state.selectedWorker=null;state.signature='';generation++;refresh();};$('overview').onclick=()=>{state.history=false;state.selected=null;state.selectedWorker=null;state.signature='';generation++;refresh();};
 $('search').oninput=e=>{state.search=e.target.value;render();};$('filter').onchange=e=>{state.filter=e.target.value;render();};
-$('zoom-in').onclick=()=>{state.zoom=Math.min(2,state.zoom+.25);applyZoom();};
-$('zoom-out').onclick=()=>{state.zoom=Math.max(.25,state.zoom-.25);applyZoom();};
-$('zoom-fit').onclick=()=>{if(state.layout){state.zoom=Math.max(.25,Math.min(2,($('world-viewport').clientWidth-18)/state.layout.width));applyZoom();}};
-let lastFrame=0;function animate(t){if(!document.hidden&&t-lastFrame>180){const canvas=document.querySelector('canvas.world-scene');if(canvas)scene(canvas,canvas.worldLayout,canvas.worldFarms,reduced?0:t);lastFrame=t;}requestAnimationFrame(animate);}
+$('zoom-in').onclick=()=>{state.autoZoom=false;state.zoom=Math.min(2,state.zoom+.25);applyZoom();};
+$('zoom-out').onclick=()=>{state.autoZoom=false;state.zoom=Math.max(.25,state.zoom-.25);applyZoom();};
+$('zoom-fit').onclick=()=>{if(state.layout){state.autoZoom=false;const viewport=$('world-viewport');state.zoom=Math.max(.25,Math.min(2,(viewport.clientWidth-18)/state.layout.width,((viewport.clientHeight||600)-(viewport.clientWidth<=850?240:192))/state.layout.height));applyZoom();}};
+$('motion-toggle').onclick=()=>{if(!reduced){state.motion=!state.motion;updateMotionControl();const canvas=document.querySelector('canvas.world-scene');if(canvas)scene(canvas,canvas.worldLayout,canvas.worldFarms,0);}};
+if(typeof addEventListener==='function')addEventListener('resize',()=>applyZoom());
+if(typeof motionPreference.addEventListener==='function')motionPreference.addEventListener('change',event=>{reduced=event.matches;updateMotionControl();const canvas=document.querySelector('canvas.world-scene');if(canvas)scene(canvas,canvas.worldLayout,canvas.worldFarms,0);});
+let lastFrame=0;function animate(t){if(!document.hidden&&t-lastFrame>75){const canvas=document.querySelector('canvas.world-scene');if(canvas&&state.motion&&!reduced)scene(canvas,canvas.worldLayout,canvas.worldFarms,t);lastFrame=t;}requestAnimationFrame(animate);}
 requestAnimationFrame(animate);refresh();setInterval(refresh,2000);

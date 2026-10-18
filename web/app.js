@@ -2,7 +2,7 @@
 const $ = id => document.getElementById(id);
 const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
 let reduced = motionPreference.matches;
-const state = {demo:false, history:false, farms:[], selected:null, selectedWorker:null, zoom:1, autoZoom:true, motion:!reduced, order:[], deskOrder:new Map(), layout:null, filter:'all', search:'', pending:false, signature:''};
+const state = {demo:false, history:false, farms:[], selected:null, selectedWorker:null, zoom:1, autoZoom:true, motion:!reduced, order:[], deskOrder:new Map(), layout:null, filter:'all', search:'', pending:false, signature:'', receivedStatus:false};
 const palette = ['#627f9f','#b66d53','#8d7ba0','#bf9d56','#6b9474','#c58a98'];
 function el(tag, cls, text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;}
 function rect(c,x,y,w,h,color){c.fillStyle=color;c.fillRect(Math.round(x),Math.round(y),w,h);}
@@ -152,11 +152,20 @@ function details(){
 let generation=0;
 async function refresh(){
  const token=generation;if(state.pending)return;state.pending=true;
+ let phase='request',httpStatus=null,serverMessage='';
  try{
    const q=new URLSearchParams({demo:state.demo?'1':'0',history:state.history?'1':'0'});
-   const response=await fetch('/api/status?'+q,{signal:AbortSignal.timeout(8000)});
-   if(!response.ok)throw Error('server error');
+   const response=await fetch('/api/status?'+q,{signal:AbortSignal.timeout(state.demo||state.receivedStatus?8000:30000)});
+   httpStatus=response.status;
+   if(!response.ok){
+     const text=await response.text();
+     try{const detail=JSON.parse(text);serverMessage=String(detail.error||'')+(detail.error_type?' ('+detail.error_type+')':'');}catch{serverMessage=text;}
+     throw Error('HTTP status failure');
+   }
+   phase='decode';
    const data=await response.json();if(token!==generation)return;
+   if(!data||!Array.isArray(data.farms))throw Error('Expected a farms list from /api/status');
+   if(!state.demo)state.receivedStatus=true;phase='render';
    for(const farm of data.farms){
      if(!state.order.includes(farm.id))state.order.push(farm.id);
      const order=state.deskOrder.get(farm.id)||[];
@@ -171,11 +180,27 @@ async function refresh(){
    $('notice').textContent=state.demo?'You’re exploring a fictional world. Switch to Live farm to see activity from your connected Linux machine.':'';
    $('updated').textContent='Last checked '+new Date(data.updated_at*1000).toLocaleTimeString();
    const signature=JSON.stringify([state.farms.map(f=>({...f,title:undefined})),state.filter,state.search,state.history,state.demo]);
-   if(signature!==state.signature){state.signature=signature;render();}
+   if(signature!==state.signature){render();state.signature=signature;}
  }catch(error){
    if(token!==generation)return;
-   $('connection').textContent='Local server unavailable';$('connection-dot').className='bad';$('notice').hidden=false;
-   $('notice').textContent='Cannot reach the server. Keep python3 web_server.py and your SSH tunnel, if used, running. Displayed activity may be out of date.';
+   $('connection-dot').className='bad';$('notice').hidden=false;
+   if(phase==='render'){
+     $('connection').textContent='Connected · scene error';
+     $('notice').textContent='The server returned activity, but the farm could not be drawn: '+error.name+': '+error.message+'. Refresh after updating and restarting the Linux server.';
+   }else if(phase==='decode'){
+     $('connection').textContent='Connected · invalid status data';
+     $('notice').textContent='The server replied, but /api/status did not contain the expected JSON data. Open /api/status in this browser and share the response.';
+   }else if(httpStatus!==null){
+     $('connection').textContent='Status request failed · HTTP '+httpStatus;
+     const advice=httpStatus===403?'Update and restart the Linux server, then open its localhost URL through your SSH tunnel.':'Check the Linux server terminal.';
+     $('notice').textContent='Status request failed (HTTP '+httpStatus+'). '+serverMessage.slice(0,220)+' '+advice;
+   }else if(error.name==='TimeoutError'||error.name==='AbortError'){
+     $('connection').textContent='Waiting for session scan';
+     $('notice').textContent='The status request timed out. The first scan of large session logs can take longer; the dashboard will retry. If this persists, open /api/status in this browser and check the Linux terminal.';
+   }else{
+     $('connection').textContent='Local server unavailable';
+     $('notice').textContent='The status connection failed ('+error.name+': '+error.message+'). Keep python3 web_server.py and your SSH tunnel running. Try opening /api/status in this browser.';
+   }
  }finally{state.pending=false;if(token!==generation)refresh();}
 }
 function mode(demo){state.demo=demo;state.selected=null;state.selectedWorker=null;state.signature='';generation++;$('notice').hidden=false;$('notice').textContent='Loading '+(demo?'the demo world…':'local activity…');refresh();}

@@ -6,6 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 import re
+import sys
 from pathlib import Path
 import threading
 import time
@@ -118,9 +119,28 @@ class FarmHandler(BaseHTTPRequestHandler):
             query = parse_qs(url.query)
             try:
                 payload = self.server.farm_state.snapshot(demo=query.get('demo') == ['1'], history=query.get('history') == ['1'])
-                self.respond(200, json.dumps(payload).encode(), 'application/json; charset=utf-8')
+                content = json.dumps(payload).encode()
+                status = 200
             except OSError:
-                self.respond(503, b'{"error":"Cannot read local Codex status. Check terminal permissions and --codex-home."}', 'application/json')
+                status = 503
+                content = b'{"error":"Cannot read local Codex status. Check terminal permissions and --codex-home."}'
+            except Exception as exc:
+                # Session data can contain prompts and private paths. Report only
+                # the exception class, never its message or a traceback.
+                error_type = type(exc).__name__
+                print(f'Local status reader failed: {error_type}', file=sys.stderr, flush=True)
+                status = 500
+                content = json.dumps({
+                    'error': 'Local status reader failed. Check the Linux server terminal.',
+                    'code': 'status_reader_error',
+                    'error_type': error_type,
+                }).encode()
+            # A browser timeout or closed SSH tunnel is a transport failure, not
+            # a failure to read the local session data.
+            try:
+                self.respond(status, content, 'application/json; charset=utf-8')
+            except (BrokenPipeError, ConnectionResetError):
+                pass
             return
         assets = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/layout.js': ('layout.js', 'text/javascript; charset=utf-8'), '/motion.js': ('motion.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8')}
         if url.path not in assets:

@@ -118,7 +118,8 @@ async function application(farms, reducedMotion = false) {
       requests.push(url);
       if (!responses.length) throw new Error('Unexpected status request');
       const response = responses.shift();
-      return {ok: true, json: async () => response};
+      if (response instanceof Error) throw response;
+      return {ok: response.ok !== false, status: response.status || 200, text: async () => response.body || JSON.stringify(response), json: async () => { if (response.invalidJson) throw new SyntaxError('Invalid JSON'); return response; }};
     }
   });
   for (const [, script] of fs.readFileSync(path.join(webRoot, 'index.html'), 'utf8').matchAll(/<script src="\/([\w.-]+)"/g)) {
@@ -129,6 +130,10 @@ async function application(farms, reducedMotion = false) {
   return {
     document, byId, context, requests, intervals, frames,
     world: byId.get('world-space'),
+    async reply(response) {
+      responses.push(response);
+      await intervals[0].callback();
+    },
     async poll(nextFarms) {
       responses.push({farms: nextFarms, updated_at: 101});
       assert.equal(intervals.length, 1);
@@ -284,4 +289,40 @@ test('motion toggle and reduced-motion preference stop working-character movemen
   const quiet = await application([farm], true);
   assert.equal(quiet.byId.get('motion-toggle').disabled, true);
   assert.equal(quiet.byId.get('motion-toggle').getAttribute('aria-pressed'), 'false');
+});
+
+
+test('API rejection reports HTTP status and server message rather than a broken tunnel', async () => {
+  const app = await application([makeFarm('alpha', 1)]);
+  await app.reply({ok: false, status: 403, body: 'Local requests only'});
+  assert.match(app.byId.get('notice').textContent, /HTTP 403/);
+  assert.match(app.byId.get('notice').textContent, /Local requests only/);
+  assert.doesNotMatch(app.byId.get('connection').textContent, /unavailable/);
+  await app.reply({ok: false, status: 500, body: '{"error":"Local status reader failed","error_type":"TypeError"}'});
+  assert.match(app.byId.get('notice').textContent, /HTTP 500.*TypeError/);
+});
+
+test('scene failure is distinct from connectivity and identical data is retried after recovery', async () => {
+  const app = await application([makeFarm('alpha', 1)]);
+  vm.runInContext('const originalScene = scene; scene = () => { throw new Error("test drawing failure"); };', app.context);
+  const changed = makeFarm('alpha', 2);
+  await app.poll([changed]);
+  assert.match(app.byId.get('connection').textContent, /Connected.*scene error/);
+  assert.match(app.byId.get('notice').textContent, /test drawing failure/);
+  vm.runInContext('scene = originalScene;', app.context);
+  await app.poll([changed]);
+  assert.equal(app.byId.get('connection-dot').className, 'good');
+  assert.equal(app.byId.get('notice').hidden, true);
+  assert.equal(app.world.querySelectorAll('.desk-button').length, 2);
+});
+
+test('invalid JSON, timeouts and connection errors have different recovery messages', async () => {
+  const app = await application([makeFarm('alpha', 1)]);
+  await app.reply({invalidJson: true});
+  assert.match(app.byId.get('connection').textContent, /invalid status data/);
+  const timeout = new Error('too slow'); timeout.name = 'TimeoutError';
+  await app.reply(timeout);
+  assert.match(app.byId.get('notice').textContent, /first scan.*large session logs/);
+  await app.reply(new TypeError('Failed to fetch'));
+  assert.match(app.byId.get('notice').textContent, /Failed to fetch/);
 });

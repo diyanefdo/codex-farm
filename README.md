@@ -51,6 +51,12 @@ ssh -N -L 9876:127.0.0.1:8765 your-user@linux-host
 
 Open http://127.0.0.1:9876 for that tunnel. Loopback browser addresses (`127.0.0.1`, `localhost`, or `[::1]`) can use any valid local forwarded port. If you see "Local requests only", update and restart the Linux server, and use the localhost address in Windows rather than a Linux hostname or external proxy URL. Opening the page from a link is supported; foreign-origin requests to the status API remain blocked.
 
+## If the farm cannot load
+
+The banner distinguishes network/SSH connection failures, HTTP status errors, invalid JSON, and scene-rendering errors. The first live log scan has a 30-second timeout; subsequent requests use eight seconds. Failed scene updates are retried even when the next status payload is unchanged.
+
+Open `/api/status` on the same browser address (for example, http://127.0.0.1:8765/api/status) to check the raw response. `?demo=1` checks the API without reading real sessions. A working demo response with a failing live response points to the local status reader or log scan rather than the tunnel. Unexpected reader errors return a sanitized HTTP 500 JSON response with the exception class; prompts and private paths are not included.
+
 ## Web checks
 
 ```bash

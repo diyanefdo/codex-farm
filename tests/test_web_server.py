@@ -126,6 +126,41 @@ class WebTests(unittest.TestCase):
         self.assertNotIn(b'private path', body)
         self.assertIn(b'error', body)
 
+    def test_unexpected_reader_failure_returns_sanitized_json(self):
+        diagnostic = io.StringIO()
+        with patch('web_server.FarmState.snapshot', side_effect=TypeError('PRIVATE_PROMPT /secret/project')), patch('web_server.sys.stderr', diagnostic):
+            head, body = self.request('/api/status')
+        self.assertIn('500 Internal Server Error', head)
+        self.assertEqual(json.loads(body), {
+            'error': 'Local status reader failed. Check the Linux server terminal.',
+            'code': 'status_reader_error',
+            'error_type': 'TypeError',
+        })
+        self.assertEqual(diagnostic.getvalue(), 'Local status reader failed: TypeError\n')
+        for private in ('PRIVATE_PROMPT', '/secret/project'):
+            self.assertNotIn(private, body.decode())
+            self.assertNotIn(private, diagnostic.getvalue())
+
+    def test_serialization_failure_returns_reader_error(self):
+        diagnostic = io.StringIO()
+        with patch('web_server.FarmState.snapshot', return_value={'private': object()}), patch('web_server.sys.stderr', diagnostic):
+            head, body = self.request('/api/status')
+        self.assertIn('500 Internal Server Error', head)
+        self.assertEqual(json.loads(body)['code'], 'status_reader_error')
+        self.assertEqual(json.loads(body)['error_type'], 'TypeError')
+        self.assertNotIn('private', body.decode())
+        self.assertEqual(diagnostic.getvalue(), 'Local status reader failed: TypeError\n')
+
+    def test_disconnected_client_is_not_reported_as_reader_failure(self):
+        sock = FakeSocket(b'GET /api/status?demo=1 HTTP/1.0\r\nHost: localhost:8765\r\n\r\n')
+        server = SimpleNamespace(server_port=8765, farm_state=FarmState(Path('/unused')))
+        diagnostic = io.StringIO()
+        with patch.object(FarmHandler, 'respond', side_effect=BrokenPipeError) as respond, patch('web_server.sys.stderr', diagnostic):
+            FarmHandler(sock, ('127.0.0.1', 1000), server)
+        respond.assert_called_once()
+        self.assertEqual(respond.call_args.args[0], 200)
+        self.assertEqual(diagnostic.getvalue(), '')
+
     def test_layout_module_is_served_as_javascript(self):
         with patch('web_server.ASSETS') as assets:
             assets.__truediv__.return_value.read_bytes.return_value = b'export const layout = true;'

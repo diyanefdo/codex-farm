@@ -19,13 +19,39 @@ Open **http://127.0.0.1:8765** in a browser on that PC. Keep the server running 
 python3 web_server.py --codex-home ~/.codex --port 8766
 ```
 
-The app refreshes every two seconds. It has original pixel-art cottages, orchards, crops, a pond, an outdoor manager desk, and animated farmers. Each worker represents an actual recorded agent; no agents are created by the dashboard. Large teams show up to eleven characters in the scene and every member in the task list. Click a farm to inspect full tasks, original requests, and session IDs. Search, activity filters, and session history are available in the browser. Reduced-motion preferences disable sprite animation.
+The app refreshes every two seconds. One shared pixel-art homestead contains manager offices connected by a village lane. Each office has a manager desk and an individual desk for every recorded agent or subagent. Offices grow vertically as teams expand; every team member gets a desk, including large teams. Newly observed agents take the next desk, and offices retain their order as status updates arrive. Click an office heading to inspect the team or click a desk for that person’s task, original request, and session ID. All desks can be reached with the keyboard. Scroll the map and use +, −, or Fit to adjust the view. Search, activity filters, and session history are available. Reduced-motion preferences disable character animation. The dashboard displays recorded delegations and does not create agents itself.
 
 **Explore demo** displays explicitly labeled fictional data. Live mode never falls back to demo data. Recent unlinked LOG cards show recorded events from the last 15 minutes; **Session history** shows the last 24 hours. A recorded session state is not proof an agent is still running. Process cards remain separate when PID attribution cannot be proven. QGenie discovery and the `spawn` / `spawn_agent` grouping adapters are included.
 
 The Python backend reads `/proc` and the configured local session logs. The browser calls its same-origin `/api/status` endpoint; a standalone hosted page cannot read your PC's processes. No remote fonts, analytics, assets, or services are required. The server binds only to `127.0.0.1`, rejects foreign hosts/origins, has no execution or write API, and does not send CORS permissions. Task text may contain private project information, so keep it local. To monitor a remote machine, use an SSH local tunnel rather than exposing the service publicly.
 
-Validation: the Python suite includes API routing, demo isolation, origin rejection, no-file-traversal checks, and session/agent serialization. Browser visual QA is not part of the automated suite.
+## Updating and accessing over SSH
+
+Stop the old Python server with Ctrl+C, then update and restart it on Linux:
+
+```bash
+git switch web-app
+git pull
+python3 web_server.py
+```
+
+For a Windows browser connected to the Linux machine over SSH, keep this PowerShell command running (substitute your normal SSH login):
+
+```powershell
+ssh -N -L 8765:127.0.0.1:8765 your-user@linux-host
+```
+
+Then open http://127.0.0.1:8765 in the Windows browser. The Python server continues to read the Linux machine’s processes and logs. No server bind-address change is needed.
+
+## Web checks
+
+```bash
+python3 -m unittest discover -s tests -v
+node tests/test_layout.cjs
+node tests/test_shared_ui.cjs
+```
+
+The Python suite checks API routing, stable session identity across process/log transitions, demo isolation, origin rejection, file traversal, and session/agent serialization. The JavaScript layout tests cover office separation, individual desks for large teams, and additions/removals. The UI integration checks run the actual browser scripts with a small DOM/canvas substitute to verify desk selection, polling, focus retention, and zoom. They do not check browser rendering. Node is needed only to run JavaScript checks, not to run the app. Browser visual QA is not part of the automated suite.
 
 The original terminal version and its commands are documented below.
 

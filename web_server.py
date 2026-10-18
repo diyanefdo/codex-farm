@@ -36,10 +36,21 @@ class FarmState:
                 sessions = {s.worker.id: s for s in self.monitor.sessions.values() if s.worker.id}
                 scanned = time.time()
             farms = []
+            seen_sessions = set()
             for title, cwd, workers in cards:
                 root = sessions.get(workers[0].id)
                 is_log = title.startswith('LOG ')
-                farm_id = ('log:' if is_log else 'pid:') + workers[0].id
+                if demo:
+                    farm_id = 'demo:' + workers[0].id
+                elif root:
+                    # A session keeps its office when its log descriptor closes.
+                    # Several processes can also hold the same log open.
+                    if root.id in seen_sessions:
+                        continue
+                    seen_sessions.add(root.id)
+                    farm_id = 'session:' + root.id
+                else:
+                    farm_id = 'pid:' + workers[0].id
                 serialized = [asdict(w) for w in workers]
                 if not root and not is_log and not demo:
                     serialized[0]['task'] = 'Running locally. Open a recorded session to see task activity.'
@@ -85,7 +96,7 @@ class FarmHandler(BaseHTTPRequestHandler):
             except OSError:
                 self.respond(503, b'{"error":"Cannot read local Codex status. Check terminal permissions and --codex-home."}', 'application/json')
             return
-        assets = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8')}
+        assets = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript; charset=utf-8'), '/layout.js': ('layout.js', 'text/javascript; charset=utf-8'), '/style.css': ('style.css', 'text/css; charset=utf-8')}
         if url.path not in assets:
             self.respond(404, b'Not found', 'text/plain')
             return
